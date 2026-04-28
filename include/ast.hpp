@@ -6,19 +6,13 @@
 #include <string>
 #include <memory>
 
-class NumberLiteral;
-class StringLiteral;
-class BoolLiteral;
-class BinaryExpr;
-class UnaryExpr;
-class BlockExpr;
-class VarRef;
-class AssignExpr;
-class LetBinding;
-class LetExpr;
-class IfExpr;
-class WhileExpr;
-class ForExpr;
+class NumberLiteral; class StringLiteral; class BoolLiteral;
+class BinaryExpr; class UnaryExpr; class BlockExpr;
+class VarRef; class AssignExpr; class LetBinding; class LetExpr;
+class IfExpr; class WhileExpr; class ForExpr;
+class FuncCall; class FuncDef; class TypeDef;
+class NewExpr; class MemberAccess; class MethodCall;
+class SelfRef; class BaseCall; class IsExpr; class AsExpr;
 
 template <typename T>
 class Visitor {
@@ -36,6 +30,16 @@ public:
     virtual T visit(IfExpr& node) = 0;
     virtual T visit(WhileExpr& node) = 0;
     virtual T visit(ForExpr& node) = 0;
+    virtual T visit(FuncCall& node) = 0;
+    virtual T visit(FuncDef& node) = 0;
+    virtual T visit(TypeDef& node) = 0;
+    virtual T visit(NewExpr& node) = 0;
+    virtual T visit(MemberAccess& node) = 0;
+    virtual T visit(MethodCall& node) = 0;
+    virtual T visit(SelfRef& node) = 0;
+    virtual T visit(BaseCall& node) = 0;
+    virtual T visit(IsExpr& node) = 0;
+    virtual T visit(AsExpr& node) = 0;
     virtual ~Visitor() = default;
 };
 
@@ -122,6 +126,150 @@ public:
 
     ForExpr(std::string var_name, std::unique_ptr<Expr> iterable, std::unique_ptr<Expr> body, int line)
         : Expr(line), variable_name(std::move(var_name)), iterable(std::move(iterable)), body(std::move(body)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+struct Parameter {
+    std::string name;
+    std::string type_annotation; // Opcional
+    Parameter(std::string n, std::string t = "") : name(std::move(n)), type_annotation(std::move(t)) {}
+};
+
+class FuncCall : public Expr {
+public:
+    std::string name;
+    std::vector<std::unique_ptr<Expr>> args;
+
+    FuncCall(std::string name, std::vector<std::unique_ptr<Expr>> args, int line)
+        : Expr(line), name(std::move(name)), args(std::move(args)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class FuncDef : public Node {
+public:
+    std::string name;
+    std::vector<Parameter> params;
+    std::string return_type;
+    std::unique_ptr<Expr> body;
+
+    FuncDef(std::string name, std::vector<Parameter> params, std::string ret_type, std::unique_ptr<Expr> body, int line)
+        : Node(line), name(std::move(name)), params(std::move(params)), return_type(std::move(ret_type)), body(std::move(body)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class AttributeDef : public Node {
+public:
+    std::string name;
+    std::string type_annotation;
+    std::unique_ptr<Expr> initializer;
+
+    AttributeDef(std::string name, std::string type, std::unique_ptr<Expr> init, int line)
+        : Node(line), name(std::move(name)), type_annotation(std::move(type)), initializer(std::move(init)) {}
+
+    void accept(Visitor<void>& visitor) override { /* No requiere visit independiente si se maneja en TypeDef */ }
+};
+
+class MethodDef : public Node {
+public:
+    std::string name;
+    std::vector<Parameter> params;
+    std::string return_type;
+    std::unique_ptr<Expr> body;
+
+    MethodDef(std::string name, std::vector<Parameter> params, std::string ret_type, std::unique_ptr<Expr> body, int line)
+        : Node(line), name(std::move(name)), params(std::move(params)), return_type(std::move(ret_type)), body(std::move(body)) {}
+
+    void accept(Visitor<void>& visitor) override { /* Manejado por TypeDef */ }
+};
+
+class TypeDef : public Node {
+public:
+    std::string name;
+    std::vector<Parameter> type_params; // Para constructores
+    std::string parent_name;
+    std::vector<std::unique_ptr<AttributeDef>> attributes;
+    std::vector<std::unique_ptr<MethodDef>> methods;
+
+    TypeDef(std::string name, std::vector<Parameter> t_params, std::string p_name, 
+            std::vector<std::unique_ptr<AttributeDef>> attrs, std::vector<std::unique_ptr<MethodDef>> meths, int line)
+        : Node(line), name(std::move(name)), type_params(std::move(t_params)), 
+          parent_name(std::move(p_name)), attributes(std::move(attrs)), methods(std::move(meths)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class NewExpr : public Expr {
+public:
+    std::string type_name;
+    std::vector<std::unique_ptr<Expr>> args;
+
+    NewExpr(std::string type, std::vector<std::unique_ptr<Expr>> args, int line)
+        : Expr(line), type_name(std::move(type)), args(std::move(args)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class MemberAccess : public Expr {
+public:
+    std::unique_ptr<Expr> object;
+    std::string member_name;
+
+    MemberAccess(std::unique_ptr<Expr> obj, std::string member, int line)
+        : Expr(line), object(std::move(obj)), member_name(std::move(member)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class MethodCall : public Expr {
+public:
+    std::unique_ptr<Expr> object;
+    std::string method_name;
+    std::vector<std::unique_ptr<Expr>> args;
+
+    MethodCall(std::unique_ptr<Expr> obj, std::string method, std::vector<std::unique_ptr<Expr>> args, int line)
+        : Expr(line), object(std::move(obj)), method_name(std::move(method)), args(std::move(args)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class SelfRef : public Expr {
+public:
+    SelfRef(int line) : Expr(line) {}
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class BaseCall : public Expr {
+public:
+    std::string method_name;
+    std::vector<std::unique_ptr<Expr>> args;
+
+    BaseCall(std::string method, std::vector<std::unique_ptr<Expr>> args, int line)
+        : Expr(line), method_name(std::move(method)), args(std::move(args)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class IsExpr : public Expr {
+public:
+    std::unique_ptr<Expr> expression;
+    std::string type_name;
+
+    IsExpr(std::unique_ptr<Expr> expr, std::string type, int line)
+        : Expr(line), expression(std::move(expr)), type_name(std::move(type)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class AsExpr : public Expr {
+public:
+    std::unique_ptr<Expr> expression;
+    std::string type_name;
+
+    AsExpr(std::unique_ptr<Expr> expr, std::string type, int line)
+        : Expr(line), expression(std::move(expr)), type_name(std::move(type)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
