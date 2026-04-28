@@ -1,0 +1,9 @@
+# .gitignore
+build/
+bin/
+*.o
+lexer.cpp
+parser.cpp
+parser.hpp
+location.hh
+stack.hh
