@@ -13,6 +13,8 @@ class IfExpr; class WhileExpr; class ForExpr;
 class FuncCall; class FuncDef; class TypeDef;
 class NewExpr; class MemberAccess; class MethodCall;
 class SelfRef; class BaseCall; class IsExpr; class AsExpr;
+class VectorLiteral; class VectorComprehension; class VectorComprehensionFilter;
+class VectorIndex; class Program;
 
 template <typename T>
 class Visitor {
@@ -40,6 +42,11 @@ public:
     virtual T visit(BaseCall& node) = 0;
     virtual T visit(IsExpr& node) = 0;
     virtual T visit(AsExpr& node) = 0;
+    virtual T visit(VectorLiteral& node) = 0;
+    virtual T visit(VectorComprehension& node) = 0;
+    virtual T visit(VectorComprehensionFilter& node) = 0;
+    virtual T visit(VectorIndex& node) = 0;
+    virtual T visit(Program& node) = 0;
     virtual ~Visitor() = default;
 };
 
@@ -270,6 +277,64 @@ public:
 
     AsExpr(std::unique_ptr<Expr> expr, std::string type, int line)
         : Expr(line), expression(std::move(expr)), type_name(std::move(type)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class VectorLiteral : public Expr {
+public:
+    std::vector<std::unique_ptr<Expr>> elements;
+
+    VectorLiteral(std::vector<std::unique_ptr<Expr>> elements, int line)
+        : Expr(line), elements(std::move(elements)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class VectorComprehension : public Expr {
+public:
+    std::unique_ptr<Expr> generator;
+    std::string variable_name;
+    std::unique_ptr<Expr> iterable;
+
+    VectorComprehension(std::unique_ptr<Expr> gen, std::string var, std::unique_ptr<Expr> iter, int line)
+        : Expr(line), generator(std::move(gen)), variable_name(std::move(var)), iterable(std::move(iter)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class VectorComprehensionFilter : public Expr {
+public:
+    std::unique_ptr<Expr> generator;
+    std::string variable_name;
+    std::unique_ptr<Expr> iterable;
+    std::unique_ptr<Expr> filter;
+
+    VectorComprehensionFilter(std::unique_ptr<Expr> gen, std::string var, std::unique_ptr<Expr> iter, std::unique_ptr<Expr> fil, int line)
+        : Expr(line), generator(std::move(gen)), variable_name(std::move(var)), iterable(std::move(iter)), filter(std::move(fil)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class VectorIndex : public Expr {
+public:
+    std::unique_ptr<Expr> vector;
+    std::unique_ptr<Expr> index;
+
+    VectorIndex(std::unique_ptr<Expr> vec, std::unique_ptr<Expr> idx, int line)
+        : Expr(line), vector(std::move(vec)), index(std::move(idx)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class Program : public Node {
+public:
+    std::vector<std::unique_ptr<TypeDef>> types;
+    std::vector<std::unique_ptr<FuncDef>> functions;
+    std::unique_ptr<Expr> global_expression;
+
+    Program(std::vector<std::unique_ptr<TypeDef>> t, std::vector<std::unique_ptr<FuncDef>> f, std::unique_ptr<Expr> glob, int line)
+        : Node(line), types(std::move(t)), functions(std::move(f)), global_expression(std::move(glob)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
