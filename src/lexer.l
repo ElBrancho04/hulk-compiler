@@ -3,19 +3,25 @@
 #include <string>
 #include "ast.hpp"
 
-// Variable global para el conteo de líneas
+// Variables globales
 int line_number = 1;
+std::string parsed_string = "";
 %}
 
-/* Opción para no generar la función yywrap (necesaria en versiones antiguas) */
+/* Opción para no generar la función yywrap */
 %option noyywrap
 /* Evita advertencias de funciones no utilizadas */
 %option nounput
 %option noinput
 
+/* Estado exclusivo para Strings */
+%x STR_STATE
+
 /* Definiciones de expresiones regulares */
 DIGIT           [0-9]
+LETTER          [a-zA-Z]
 NUMBER          {DIGIT}+(\.{DIGIT}+)?|\.{DIGIT}+
+IDENTIFIER      ({LETTER}|_)({LETTER}|{DIGIT}|_)*
 
 %%
 
@@ -42,16 +48,13 @@ NUMBER          {DIGIT}+(\.{DIGIT}+)?|\.{DIGIT}+
 "protocol"              { return 115; }
 "extends"               { return 116; }
 
-/* Literales Booleanos */
-"true"                  { return 1; /* En el futuro será un token TRUE */ }
-"false"                 { return 0; /* En el futuro será un token FALSE */ }
+"true"                  { return 117; }
+"false"                 { return 118; }
 
-/* Flechas y Operadores Compuestos */
 "=>"                    { return 200; }
 "->"                    { return 201; }
 ":="                    { return 202; }
 
-/* Comparación */
 "=="                    { return 210; }
 "!="                    { return 211; }
 "<="                    { return 212; }
@@ -59,11 +62,9 @@ NUMBER          {DIGIT}+(\.{DIGIT}+)?|\.{DIGIT}+
 "<"                     { return '<'; }
 ">"                     { return '>'; }
 
-/* Concatenación */
 "@@"                    { return 220; }
 "@"                     { return '@'; }
 
-/* Operadores Aritméticos y Booleanos */
 "+"                     { return '+'; }
 "-"                     { return '-'; }
 "*"                     { return '*'; }
@@ -74,33 +75,18 @@ NUMBER          {DIGIT}+(\.{DIGIT}+)?|\.{DIGIT}+
 "!"                     { return '!'; }
 "="                     { return '='; }
 
-/* Literales Numéricos */
-{NUMBER}                { return 2; /* En el futuro será un token NUMBER */ }
+{IDENTIFIER}            { return 4; }
+{NUMBER}                { return 2; }
 
-/* Literales de String */
-\"                      {
-                            std::string current_string = "";
-                            int c;
-                            while ((c = yyinput()) != '\"' && c != EOF) {
-                                if (c == '\\') {
-                                    c = yyinput();
-                                    if (c == 'n') current_string += '\n';
-                                    else if (c == 't') current_string += '\t';
-                                    else if (c == '\"') current_string += '\"';
-                                    else if (c == '\\') current_string += '\\';
-                                    else current_string += (char)c;
-                                } else if (c == '\n') {
-                                    current_string += (char)c;
-                                    line_number++;
-                                } else {
-                                    current_string += (char)c;
-                                }
-                            }
-                            if (c == EOF) {
-                                std::cerr << "Error léxico: String no cerrado en línea " << line_number << std::endl;
-                            }
-                            return 3; /* En el futuro será un token STRING */
-                        }
+\"                      { parsed_string = ""; BEGIN(STR_STATE); }
+<STR_STATE>\"           { BEGIN(INITIAL); return 3; }
+<STR_STATE>\\n          { parsed_string += '\n'; }
+<STR_STATE>\\t          { parsed_string += '\t'; }
+<STR_STATE>\\\"         { parsed_string += '\"'; }
+<STR_STATE>\\\\         { parsed_string += '\\'; }
+<STR_STATE>[^\\\"\n]+   { parsed_string += yytext; }
+<STR_STATE>\n           { parsed_string += '\n'; line_number++; }
+<STR_STATE><<EOF>>      { std::cerr << "Error: String no cerrado"; return 3; }
 
 "("                     { return '('; }
 ")"                     { return ')'; }
@@ -112,5 +98,10 @@ NUMBER          {DIGIT}+(\.{DIGIT}+)?|\.{DIGIT}+
 "."                     { return '.'; }
 ":"                     { return ':'; }
 ";"                     { return ';'; }
+
+.                       { 
+                            std::cerr << "Lexical Error: Unexpected character '" << yytext[0] 
+                                      << "' at line " << line_number << std::endl; 
+                        }
 
 %%
