@@ -47,7 +47,10 @@ Node* root = nullptr;
 
 /* --- Precedencia y Asociatividad --- */
 /* De menor a mayor precedencia */
-%right TOK_ASSIGN
+%nonassoc TOK_IN        /* Para resolver ambigüedades en LET */
+%nonassoc TOK_ELSE      /* Para resolver el 'Dangling Else' */
+
+%right TOK_ASSIGN       /* := */
 %left '|'
 %left '&'
 %right '!'
@@ -56,13 +59,24 @@ Node* root = nullptr;
 %left '+' '-'
 %left '*' '/'
 %right '^'
-%right NEG /* Para el menos unario: -5 */
+%right NEG              /* Unario */
+
+/* Precedencia para llamadas a funciones y acceso a miembros */
+%left '(' ')' '[' ']' '.'
 
 %%
 
-/* Punto de entrada */
 program:
-    expression ';' { root = $1; std::cout << "Parse exitoso." << std::endl; }
+    instruction_list
+    ;
+
+instruction_list:
+    instruction
+    | instruction_list instruction
+    ;
+
+instruction:
+    expression ';' { std::cout << "Sentencia procesada con éxito." << std::endl; }
     ;
 
 expression:
@@ -100,6 +114,28 @@ expression:
     /* Concatenación */
     | expression TOK_CONCAT expression  { $$ = nullptr; }
     | expression TOK_DCONCAT expression { $$ = nullptr; }
+
+    /* Asignación */
+    | IDENTIFIER TOK_ASSIGN expression  { $$ = nullptr; }
+
+    /* Let */
+    | TOK_LET binding_list TOK_IN expression { $$ = nullptr; }
+
+    /* If-Else */
+    | TOK_IF '(' expression ')' expression TOK_ELSE expression { $$ = nullptr; }
+
+    /* Bucles */
+    | TOK_WHILE '(' expression ')' expression { $$ = nullptr; }
+    | TOK_FOR '(' IDENTIFIER TOK_IN expression ')' expression { $$ = nullptr; }
+    ;
+
+binding_list:
+    binding                 { /* No tiene tipo asignado aún */ }
+    | binding_list ',' binding
+    ;
+
+binding:
+    IDENTIFIER '=' expression
     ;
 
 %%
