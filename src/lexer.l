@@ -76,6 +76,7 @@ IDENTIFIER      ({LETTER}|_)({LETTER}|{DIGIT}|_)*
 "-"                     { return '-'; }
 "*"                     { return '*'; }
 "/"                     { return '/'; }
+"%"                     { return '%'; }
 "^"                     { return '^'; }
 "&"                     { return '&'; }
 "|"                     { return '|'; }

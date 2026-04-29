@@ -57,7 +57,7 @@ Node* root = nullptr;
 %nonassoc TOK_EQ TOK_NEQ '<' '>' TOK_LEQ TOK_GEQ TOK_IS TOK_AS
 %left TOK_CONCAT TOK_DCONCAT
 %left '+' '-'
-%left '*' '/'
+%left '*' '/' '%'
 %right '^'
 %right NEG              /* Unario */
 
@@ -79,6 +79,7 @@ definition_list:
 definition:
     function_definition
     | type_definition
+    | protocol_definition
     ;
 
 /* Definición de Funciones */
@@ -90,6 +91,31 @@ function_definition:
 /* Definición de Tipos */
 type_definition:
     TOK_TYPE IDENTIFIER opt_type_params opt_inherits '{' type_body '}'
+    ;
+
+/* Definición de Protocolos */
+protocol_definition:
+    TOK_PROTOCOL IDENTIFIER opt_extends '{' protocol_body '}'
+    ;
+
+opt_extends:
+    /* vacío */
+    | TOK_EXTENDS IDENTIFIER
+    ;
+
+protocol_body:
+    /* vacío */
+    | protocol_methods
+    ;
+
+protocol_methods:
+    protocol_method
+    | protocol_methods protocol_method
+    ;
+
+/* En un protocolo solo definimos la firma del método */
+protocol_method:
+    IDENTIFIER '(' params_list ')' ':' IDENTIFIER ';'
     ;
 
 opt_type_params:
@@ -174,6 +200,7 @@ expression:
     | expression '-' expression { $$ = nullptr; }
     | expression '*' expression { $$ = nullptr; }
     | expression '/' expression { $$ = nullptr; }
+    | expression '%' expression { $$ = nullptr; }
     | expression '^' expression { $$ = nullptr; }
     | '-' expression %prec NEG  { $$ = nullptr; }
 
@@ -223,6 +250,18 @@ expression:
     /* Palabras clave especiales */
     | TOK_SELF                                  { $$ = nullptr; }
     | TOK_BASE '(' opt_type_args ')'            { $$ = nullptr; }
+
+    /* Vectores Literales */
+    | '[' opt_expression_list ']'               { $$ = nullptr; }
+
+    /* Indexación de vectores */
+    | expression '[' expression ']'             { $$ = nullptr; }
+
+    /* Comprensión de vectores (Estructura base) */
+    | '[' expression TOK_FOR IDENTIFIER TOK_IN expression ']' { $$ = nullptr; }
+    
+    /* Comprensión con filtro 'if' */
+    | '[' expression TOK_FOR IDENTIFIER TOK_IN expression TOK_IF expression ']' { $$ = nullptr; }
     ;
 
 /* Una lista de expresiones dentro de un bloque, terminadas por ';' */
