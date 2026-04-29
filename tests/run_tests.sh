@@ -6,7 +6,7 @@ if [ ! -f ./build/hulk ]; then
 fi
 
 # Por ahora un test simple que verifica si el compilador abre
-./build/hulk > /dev/null
+echo "42;" | ./build/hulk > /dev/null
 if [ $? -eq 0 ]; then
     echo "Test inicial: PASSED"
     exit 0

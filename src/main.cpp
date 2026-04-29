@@ -1,15 +1,21 @@
 #include <iostream>
 #include "ast.hpp"
+#include "print_visitor.hpp"
 
+extern Program* root;
 extern int yyparse();
-extern Node* root;
 
 int main() {
-    std::cout << "--- HULK Compiler (Parser Mode) ---" << std::endl;
-    if (yyparse() == 0) {
-        std::cout << "Análisis sintáctico completado con éxito." << std::endl;
+    if (yyparse() == 0 && root != nullptr) {
+        std::cout << "SUCCESS: Parseo completado y AST generado.\n" << std::endl;
+
+        PrintVisitor printer;
+        root->accept(printer);
+
+        delete root; 
+        return 0;
     } else {
-        std::cout << "Análisis fallido." << std::endl;
+        std::cerr << "FAILURE: Error en el parseo." << std::endl;
+        return 1;
     }
-    return 0;
 }

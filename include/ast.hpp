@@ -53,10 +53,8 @@ public:
 class Node {
 public:
     int line;
-    
     Node(int line) : line(line) {}
     virtual ~Node() = default;
-
     virtual void accept(Visitor<void>& visitor) = 0;
 };
 
@@ -69,36 +67,71 @@ class NumberLiteral : public Expr {
 public:
     double value;
     NumberLiteral(double value, int line) : Expr(line), value(value) {}
-
-    void accept(Visitor<void>& visitor) override {
-        visitor.visit(*this);
-    }
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
 class StringLiteral : public Expr {
 public:
     std::string value;
     StringLiteral(const std::string& value, int line) : Expr(line), value(value) {}
-
-    void accept(Visitor<void>& visitor) override {
-        visitor.visit(*this);
-    }
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
 class BoolLiteral : public Expr {
 public:
     bool value;
     BoolLiteral(bool value, int line) : Expr(line), value(value) {}
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
 
-    void accept(Visitor<void>& visitor) override {
-        visitor.visit(*this);
-    }
+class BinaryExpr : public Expr {
+public:
+    std::string op;
+    std::unique_ptr<Expr> left;
+    std::unique_ptr<Expr> right;
+    BinaryExpr(std::string op, std::unique_ptr<Expr> left, std::unique_ptr<Expr> right, int line)
+        : Expr(line), op(std::move(op)), left(std::move(left)), right(std::move(right)) {}
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class UnaryExpr : public Expr {
+public:
+    std::string op;
+    std::unique_ptr<Expr> operand;
+    UnaryExpr(std::string op, std::unique_ptr<Expr> operand, int line)
+        : Expr(line), op(std::move(op)), operand(std::move(operand)) {}
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class VarRef : public Expr {
+public:
+    std::string name;
+    VarRef(std::string name, int line) : Expr(line), name(std::move(name)) {}
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class AssignExpr : public Expr {
+public:
+    std::string name;
+    std::unique_ptr<Expr> value;
+
+    AssignExpr(std::string name, std::unique_ptr<Expr> value, int line)
+        : Expr(line), name(std::move(name)), value(std::move(value)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class BlockExpr : public Expr {
+public:
+    std::vector<std::unique_ptr<Expr>> expressions;
+    BlockExpr(std::vector<std::unique_ptr<Expr>> exprs, int line)
+        : Expr(line), expressions(std::move(exprs)) {}
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
 struct IfBranch {
     std::unique_ptr<Expr> condition;
     std::unique_ptr<Expr> body;
-
     IfBranch(std::unique_ptr<Expr> cond, std::unique_ptr<Expr> b)
         : condition(std::move(cond)), body(std::move(b)) {}
 };
@@ -107,10 +140,8 @@ class IfExpr : public Expr {
 public:
     std::vector<IfBranch> branches;
     std::unique_ptr<Expr> else_body;
-
     IfExpr(std::vector<IfBranch> branches, std::unique_ptr<Expr> else_body, int line)
         : Expr(line), branches(std::move(branches)), else_body(std::move(else_body)) {}
-
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
@@ -118,10 +149,8 @@ class WhileExpr : public Expr {
 public:
     std::unique_ptr<Expr> condition;
     std::unique_ptr<Expr> body;
-
     WhileExpr(std::unique_ptr<Expr> condition, std::unique_ptr<Expr> body, int line)
         : Expr(line), condition(std::move(condition)), body(std::move(body)) {}
-
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
@@ -323,6 +352,25 @@ public:
 
     VectorIndex(std::unique_ptr<Expr> vec, std::unique_ptr<Expr> idx, int line)
         : Expr(line), vector(std::move(vec)), index(std::move(idx)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class LetBinding {
+public:
+    std::string name;
+    std::unique_ptr<Expr> initializer;
+    LetBinding(std::string n, std::unique_ptr<Expr> init) 
+        : name(std::move(n)), initializer(std::move(init)) {}
+};
+
+class LetExpr : public Expr {
+public:
+    std::vector<LetBinding> bindings;
+    std::unique_ptr<Expr> body;
+
+    LetExpr(std::vector<LetBinding> b, std::unique_ptr<Expr> body, int line)
+        : Expr(line), bindings(std::move(b)), body(std::move(body)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
