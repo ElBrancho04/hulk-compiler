@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include "ast.hpp"
+#include "parser.hpp" /* Archivo generado por Bison */
 
 // Variables globales
 int line_number = 1;
@@ -30,40 +31,46 @@ IDENTIFIER      ({LETTER}|_)({LETTER}|{DIGIT}|_)*
 
 "//".* { /* Ignorar comentarios */ }
 
-"let"                   { return 100; }
-"in"                    { return 101; }
-"if"                    { return 102; }
-"elif"                  { return 103; }
-"else"                  { return 104; }
-"while"                 { return 105; }
-"for"                   { return 106; }
-"function"              { return 107; }
-"type"                  { return 108; }
-"inherits"              { return 109; }
-"new"                   { return 110; }
-"self"                  { return 111; }
-"base"                  { return 112; }
-"is"                    { return 113; }
-"as"                    { return 114; }
-"protocol"              { return 115; }
-"extends"               { return 116; }
+"let"                   { return TOK_LET; }
+"in"                    { return TOK_IN; }
+"if"                    { return TOK_IF; }
+"elif"                  { return TOK_ELIF; }
+"else"                  { return TOK_ELSE; }
+"while"                 { return TOK_WHILE; }
+"for"                   { return TOK_FOR; }
+"function"              { return TOK_FUNCTION; }
+"type"                  { return TOK_TYPE; }
+"inherits"              { return TOK_INHERITS; }
+"new"                   { return TOK_NEW; }
+"self"                  { return TOK_SELF; }
+"base"                  { return TOK_BASE; }
+"is"                    { return TOK_IS; }
+"as"                    { return TOK_AS; }
+"protocol"              { return TOK_PROTOCOL; }
+"extends"               { return TOK_EXTENDS; }
 
-"true"                  { return 117; }
-"false"                 { return 118; }
+"true"                  { return TOK_TRUE; }
+"false"                 { return TOK_FALSE; }
 
-"=>"                    { return 200; }
-"->"                    { return 201; }
-":="                    { return 202; }
+"=>"                    { return TOK_ARROW; }
+"->"                    { return TOK_TYPE_ARROW; }
+":="                    { return TOK_ASSIGN; }
+"=="                    { return TOK_EQ; }
+"!="                    { return TOK_NEQ; }
+"<="                    { return TOK_LEQ; }
+">="                    { return TOK_GEQ; }
+"@@"                    { return TOK_DCONCAT; }
+"@"                     { return TOK_CONCAT; }
 
-"=="                    { return 210; }
-"!="                    { return 211; }
-"<="                    { return 212; }
-">="                    { return 213; }
-"<"                     { return '<'; }
-">"                     { return '>'; }
+{IDENTIFIER}            { yylval.str_val = strdup(yytext); return IDENTIFIER; }
+{NUMBER}                { yylval.float_val = atof(yytext); return NUMBER; }
 
-"@@"                    { return 220; }
-"@"                     { return '@'; }
+\"                      { parsed_string = ""; BEGIN(STR_STATE); }
+<STR_STATE>\"           { BEGIN(INITIAL); yylval.str_val = strdup(parsed_string.c_str()); return STRING; }
+<STR_STATE>\\n          { parsed_string += '\n'; }
+<STR_STATE>\\\"         { parsed_string += '\"'; }
+<STR_STATE>[^\\\"\n]+   { parsed_string += yytext; }
+<STR_STATE>\n           { line_number++; parsed_string += '\n'; }
 
 "+"                     { return '+'; }
 "-"                     { return '-'; }
@@ -74,20 +81,8 @@ IDENTIFIER      ({LETTER}|_)({LETTER}|{DIGIT}|_)*
 "|"                     { return '|'; }
 "!"                     { return '!'; }
 "="                     { return '='; }
-
-{IDENTIFIER}            { return 4; }
-{NUMBER}                { return 2; }
-
-\"                      { parsed_string = ""; BEGIN(STR_STATE); }
-<STR_STATE>\"           { BEGIN(INITIAL); return 3; }
-<STR_STATE>\\n          { parsed_string += '\n'; }
-<STR_STATE>\\t          { parsed_string += '\t'; }
-<STR_STATE>\\\"         { parsed_string += '\"'; }
-<STR_STATE>\\\\         { parsed_string += '\\'; }
-<STR_STATE>[^\\\"\n]+   { parsed_string += yytext; }
-<STR_STATE>\n           { parsed_string += '\n'; line_number++; }
-<STR_STATE><<EOF>>      { std::cerr << "Error: String no cerrado"; return 3; }
-
+"<"                     { return '<'; }
+">"                     { return '>'; }
 "("                     { return '('; }
 ")"                     { return ')'; }
 "{"                     { return '{'; }
@@ -100,8 +95,8 @@ IDENTIFIER      ({LETTER}|_)({LETTER}|{DIGIT}|_)*
 ";"                     { return ';'; }
 
 .                       { 
-                            std::cerr << "Lexical Error: Unexpected character '" << yytext[0] 
-                                      << "' at line " << line_number << std::endl; 
-                        }
+    std::cerr << "Lexical Error: Caracter inesperado '" << yytext[0] 
+              << "' (ASCII: " << (int)yytext[0] << ") en linea " << line_number << std::endl; 
+}
 
 %%
