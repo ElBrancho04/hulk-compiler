@@ -129,6 +129,16 @@ expression:
     | TOK_FOR '(' IDENTIFIER TOK_IN expression ')' expression { $$ = nullptr; }
     ;
 
+    /* Bloques de expresiones */
+    | '{' block_expression_list '}' { $$ = nullptr; }
+    ;
+
+/* Una lista de expresiones dentro de un bloque, terminadas por ';' */
+block_expression_list:
+    expression ';'
+    | block_expression_list expression ';'
+    ;
+
 binding_list:
     binding                 { /* No tiene tipo asignado aún */ }
     | binding_list ',' binding
