@@ -67,16 +67,95 @@ Node* root = nullptr;
 %%
 
 program:
-    instruction_list
+    definition_list expression ';' { root = $2; std::cout << "Programa completo parseado." << std::endl; }
+    | expression ';' { root = $1; std::cout << "Expresión global procesada." << std::endl; }
     ;
 
-instruction_list:
-    instruction
-    | instruction_list instruction
+definition_list:
+    definition
+    | definition_list definition
     ;
 
-instruction:
-    expression ';' { std::cout << "Sentencia procesada con éxito." << std::endl; }
+definition:
+    function_definition
+    | type_definition
+    ;
+
+/* Definición de Funciones */
+function_definition:
+    TOK_FUNCTION IDENTIFIER '(' params_list ')' TOK_ARROW expression ';' { std::cout << "Función inline detectada." << std::endl; }
+    | TOK_FUNCTION IDENTIFIER '(' params_list ')' expression ';' { std::cout << "Función de bloque detectada." << std::endl; }
+    ;
+
+/* Definición de Tipos */
+type_definition:
+    TOK_TYPE IDENTIFIER opt_type_params opt_inherits '{' type_body '}'
+    ;
+
+opt_type_params:
+    /* vacío */
+    | '(' params_list ')'
+    ;
+
+opt_inherits:
+    /* vacío */
+    | TOK_INHERITS IDENTIFIER opt_type_args
+    ;
+
+opt_type_args:
+    /* vacío */
+    | '(' expression_list ')'
+    ;
+
+/* Atributos y Métodos */
+type_body:
+    /* vacío */
+    | type_body_elements
+    ;
+
+type_body_elements:
+    type_member
+    | type_body_elements type_member
+    ;
+
+type_member:
+    attribute_def
+    | method_def
+    ;
+
+attribute_def:
+    IDENTIFIER opt_type_annotation '=' expression ';'
+    ;
+
+method_def:
+    IDENTIFIER '(' params_list ')' TOK_ARROW expression ';'
+    | IDENTIFIER '(' params_list ')' expression ';' 
+    ;
+
+/* Anotaciones de tipo ( : TypeName ) */
+opt_type_annotation:
+    /* vacío */
+    | ':' IDENTIFIER
+    ;
+
+opt_expression_list:
+    /* vacío */
+    | expression_list
+    ;
+
+expression_list:
+    expression
+    | expression_list ',' expression
+    ;
+
+params_list:
+    /* vacío */
+    | params_list_not_empty
+    ;
+
+params_list_not_empty:
+    IDENTIFIER opt_type_annotation
+    | params_list_not_empty ',' IDENTIFIER opt_type_annotation
     ;
 
 expression:
@@ -127,10 +206,23 @@ expression:
     /* Bucles */
     | TOK_WHILE '(' expression ')' expression { $$ = nullptr; }
     | TOK_FOR '(' IDENTIFIER TOK_IN expression ')' expression { $$ = nullptr; }
-    ;
-
+    
     /* Bloques de expresiones */
     | '{' block_expression_list '}' { $$ = nullptr; }
+    
+    /* Acceso a miembros y llamadas */
+    | expression '.' IDENTIFIER                 { $$ = nullptr; }
+    | expression '.' IDENTIFIER '(' opt_type_args ')' { $$ = nullptr; }
+    | IDENTIFIER '(' opt_expression_list ')' { $$ = nullptr; }
+    
+    /* Operadores de Clase */
+    | TOK_NEW IDENTIFIER '(' opt_type_args ')'  { $$ = nullptr; }
+    | expression TOK_IS IDENTIFIER              { $$ = nullptr; }
+    | expression TOK_AS IDENTIFIER              { $$ = nullptr; }
+    
+    /* Palabras clave especiales */
+    | TOK_SELF                                  { $$ = nullptr; }
+    | TOK_BASE '(' opt_type_args ')'            { $$ = nullptr; }
     ;
 
 /* Una lista de expresiones dentro de un bloque, terminadas por ';' */
