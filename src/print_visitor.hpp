@@ -32,6 +32,13 @@ public:
             indent_level--;
         }
 
+        if (!node.protocols.empty()) {
+            printIndent(); std::cout << "Protocols:" << std::endl;
+            indent_level++;
+            for (auto& p : node.protocols) p->accept(*this);
+            indent_level--;
+        }
+
         if (!node.functions.empty()) {
             printIndent(); std::cout << "Functions:" << std::endl;
             indent_level++;
@@ -152,6 +159,24 @@ public:
         std::cout << "TypeDef: " << node.name << " Inherits: " << (node.parent_name.empty() ? "None" : node.parent_name) << std::endl;
     }
 
+    void visit(ProtocolDef& node) override {
+        printIndent();
+        std::cout << "ProtocolDef: " << node.name << " Extends: " << (node.parent_name.empty() ? "None" : node.parent_name) << std::endl;
+        indent_level++;
+        for (auto& m : node.methods) m->accept(*this);
+        indent_level--;
+    }
+
+    void visit(ProtocolMethodSig& node) override {
+        printIndent();
+        std::cout << "ProtocolMethod: " << node.name << " (Ret: " << (node.return_type.empty() ? "dynamic" : node.return_type) << ")" << std::endl;
+        indent_level++;
+        for (auto& p : node.params) {
+            printIndent(); std::cout << "Param: " << p.name << " : " << p.type_annotation << std::endl;
+        }
+        indent_level--;
+    }
+
     void visit(FuncCall& node) override {
         printIndent();
         std::cout << "FuncCall: " << node.name << std::endl;
@@ -193,7 +218,10 @@ public:
 
     void visit(BaseCall& node) override {
         printIndent();
-        std::cout << "BaseCall: " << node.method_name << std::endl;
+        std::cout << "BaseCall" << std::endl;
+        indent_level++;
+        for (auto& arg : node.args) arg->accept(*this);
+        indent_level--;
     }
 
     // --- Vectores ---
@@ -223,12 +251,54 @@ public:
     }
 
     // --- Placeholders para completar la interfaz Visitor ---
-    void visit(AssignExpr& node) override { nodeHeader("AssignExpr"); }
-    void visit(LetBinding& node) override { nodeHeader("LetBinding"); }
-    void visit(LetExpr& node) override { nodeHeader("LetExpr"); }
-    void visit(IsExpr& node) override { nodeHeader("IsExpr"); }
-    void visit(AsExpr& node) override { nodeHeader("AsExpr"); }
-    void visit(VectorComprehension& node) override { nodeHeader("VectorComprehension"); }
+    void visit(AssignExpr& node) override {
+        nodeHeader("AssignExpr");
+        indent_level++;
+        printIndent(); std::cout << "Name: " << node.name << std::endl;
+        node.value->accept(*this);
+        indent_level--;
+    }
+
+    void visit(LetBinding& node) override {
+        nodeHeader("LetBinding");
+        indent_level++;
+        printIndent(); std::cout << "Name: " << node.name << " : " << node.type_annotation << std::endl;
+        if (node.initializer) node.initializer->accept(*this);
+        indent_level--;
+    }
+
+    void visit(LetExpr& node) override {
+        nodeHeader("LetExpr");
+        indent_level++;
+        for (auto& b : node.bindings) visit(b);
+        if (node.body) node.body->accept(*this);
+        indent_level--;
+    }
+
+    void visit(IsExpr& node) override {
+        nodeHeader("IsExpr");
+        indent_level++;
+        printIndent(); std::cout << "Type: " << node.type_name << std::endl;
+        node.expression->accept(*this);
+        indent_level--;
+    }
+
+    void visit(AsExpr& node) override {
+        nodeHeader("AsExpr");
+        indent_level++;
+        printIndent(); std::cout << "Type: " << node.type_name << std::endl;
+        node.expression->accept(*this);
+        indent_level--;
+    }
+
+    void visit(VectorComprehension& node) override {
+        nodeHeader("VectorComprehension");
+        indent_level++;
+        printIndent(); std::cout << "Var: " << node.variable_name << std::endl;
+        node.generator->accept(*this);
+        node.iterable->accept(*this);
+        indent_level--;
+    }
 };
 
 #endif

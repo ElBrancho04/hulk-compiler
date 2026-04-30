@@ -11,6 +11,7 @@ class BinaryExpr; class UnaryExpr; class BlockExpr;
 class VarRef; class AssignExpr; class LetBinding; class LetExpr;
 class IfExpr; class WhileExpr; class ForExpr;
 class FuncCall; class FuncDef; class TypeDef;
+class ProtocolDef; class ProtocolMethodSig;
 class NewExpr; class MemberAccess; class MethodCall;
 class SelfRef; class BaseCall; class IsExpr; class AsExpr;
 class VectorLiteral; class VectorComprehension; class VectorComprehensionFilter;
@@ -35,6 +36,8 @@ public:
     virtual T visit(FuncCall& node) = 0;
     virtual T visit(FuncDef& node) = 0;
     virtual T visit(TypeDef& node) = 0;
+    virtual T visit(ProtocolDef& node) = 0;
+    virtual T visit(ProtocolMethodSig& node) = 0;
     virtual T visit(NewExpr& node) = 0;
     virtual T visit(MemberAccess& node) = 0;
     virtual T visit(MethodCall& node) = 0;
@@ -226,13 +229,42 @@ public:
     std::string name;
     std::vector<Parameter> type_params; // Para constructores
     std::string parent_name;
+        std::vector<std::unique_ptr<Expr>> parent_args;
     std::vector<std::unique_ptr<AttributeDef>> attributes;
     std::vector<std::unique_ptr<MethodDef>> methods;
 
-    TypeDef(std::string name, std::vector<Parameter> t_params, std::string p_name, 
-            std::vector<std::unique_ptr<AttributeDef>> attrs, std::vector<std::unique_ptr<MethodDef>> meths, int line)
-        : Node(line), name(std::move(name)), type_params(std::move(t_params)), 
-          parent_name(std::move(p_name)), attributes(std::move(attrs)), methods(std::move(meths)) {}
+        TypeDef(std::string name, std::vector<Parameter> t_params, std::string p_name,
+                        std::vector<std::unique_ptr<Expr>> p_args,
+                        std::vector<std::unique_ptr<AttributeDef>> attrs, std::vector<std::unique_ptr<MethodDef>> meths, int line)
+                : Node(line), name(std::move(name)), type_params(std::move(t_params)),
+                    parent_name(std::move(p_name)), parent_args(std::move(p_args)),
+                    attributes(std::move(attrs)), methods(std::move(meths)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class ProtocolMethodSig : public Node {
+public:
+    std::string name;
+    std::vector<Parameter> params;
+    std::string return_type;
+
+    ProtocolMethodSig(std::string name, std::vector<Parameter> params, std::string ret_type, int line)
+        : Node(line), name(std::move(name)), params(std::move(params)), return_type(std::move(ret_type)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+class ProtocolDef : public Node {
+public:
+    std::string name;
+    std::string parent_name;
+    std::vector<std::unique_ptr<ProtocolMethodSig>> methods;
+
+    ProtocolDef(std::string name, std::string parent_name,
+                std::vector<std::unique_ptr<ProtocolMethodSig>> methods, int line)
+        : Node(line), name(std::move(name)), parent_name(std::move(parent_name)),
+          methods(std::move(methods)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -279,11 +311,10 @@ public:
 
 class BaseCall : public Expr {
 public:
-    std::string method_name;
     std::vector<std::unique_ptr<Expr>> args;
 
-    BaseCall(std::string method, std::vector<std::unique_ptr<Expr>> args, int line)
-        : Expr(line), method_name(std::move(method)), args(std::move(args)) {}
+    BaseCall(std::vector<std::unique_ptr<Expr>> args, int line)
+        : Expr(line), args(std::move(args)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -359,9 +390,10 @@ public:
 class LetBinding {
 public:
     std::string name;
+    std::string type_annotation;
     std::unique_ptr<Expr> initializer;
-    LetBinding(std::string n, std::unique_ptr<Expr> init) 
-        : name(std::move(n)), initializer(std::move(init)) {}
+    LetBinding(std::string n, std::string t, std::unique_ptr<Expr> init)
+        : name(std::move(n)), type_annotation(std::move(t)), initializer(std::move(init)) {}
 };
 
 class LetExpr : public Expr {
@@ -378,11 +410,14 @@ public:
 class Program : public Node {
 public:
     std::vector<std::unique_ptr<TypeDef>> types;
+    std::vector<std::unique_ptr<ProtocolDef>> protocols;
     std::vector<std::unique_ptr<FuncDef>> functions;
     std::unique_ptr<Expr> global_expression;
 
-    Program(std::vector<std::unique_ptr<TypeDef>> t, std::vector<std::unique_ptr<FuncDef>> f, std::unique_ptr<Expr> glob, int line)
-        : Node(line), types(std::move(t)), functions(std::move(f)), global_expression(std::move(glob)) {}
+    Program(std::vector<std::unique_ptr<TypeDef>> t, std::vector<std::unique_ptr<ProtocolDef>> p,
+            std::vector<std::unique_ptr<FuncDef>> f, std::unique_ptr<Expr> glob, int line)
+        : Node(line), types(std::move(t)), protocols(std::move(p)),
+          functions(std::move(f)), global_expression(std::move(glob)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };

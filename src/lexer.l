@@ -22,7 +22,7 @@ std::string parsed_string = "";
 DIGIT           [0-9]
 LETTER          [a-zA-Z]
 NUMBER          {DIGIT}+(\.{DIGIT}+)?|\.{DIGIT}+
-IDENTIFIER      ({LETTER}|_)({LETTER}|{DIGIT}|_)*
+IDENTIFIER      {LETTER}({LETTER}|{DIGIT}|_)*
 
 %%
 
@@ -71,6 +71,7 @@ IDENTIFIER      ({LETTER}|_)({LETTER}|{DIGIT}|_)*
 <STR_STATE>\\\"         { parsed_string += '\"'; }
 <STR_STATE>[^\\\"\n]+   { parsed_string += yytext; }
 <STR_STATE>\n           { line_number++; parsed_string += '\n'; }
+<STR_STATE>\\t          { parsed_string += '\t'; }
 
 "+"                     { return '+'; }
 "-"                     { return '-'; }
