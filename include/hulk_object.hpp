@@ -11,6 +11,8 @@ public:
     std::string type_name;
     std::unordered_map<std::string, Value> attributes;
 
+    virtual ~HulkObject() = default;
+
     explicit HulkObject(std::string type_name)
         : type_name(std::move(type_name)) {}
 

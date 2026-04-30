@@ -25,3 +25,7 @@ add_executable(hulk
     ${FLEX_MyLexer_OUTPUTS}
     ${BISON_MyParser_OUTPUTS}
 )
+
+add_executable(runtime_test
+    tests/runtime_test.cpp
+)
