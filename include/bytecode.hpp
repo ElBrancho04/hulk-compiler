@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "value.hpp"
+#include "value_string.hpp"
 
 enum class OpCode {
     PUSH_CONST,

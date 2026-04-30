@@ -29,3 +29,7 @@ add_executable(hulk
 add_executable(runtime_test
     tests/runtime_test.cpp
 )
+
+add_executable(bytecode_smoke_test
+    tests/bytecode_smoke_test.cpp
+)
