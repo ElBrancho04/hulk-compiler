@@ -11,6 +11,7 @@
 
 #include "environment.hpp"
 #include "hulk_object.hpp"
+#include "hulk_range.hpp"
 #include "runtime_error.hpp"
 #include "value_string.hpp"
 
@@ -97,6 +98,15 @@ inline std::shared_ptr<Environment> create_global_env() {
             static thread_local std::mt19937 generator{std::random_device{}()};
             static thread_local std::uniform_real_distribution<double> distribution(0.0, 1.0);
             return Value::Number(distribution(generator));
+        }
+    )));
+
+    env->define("range", Value::Object(std::make_shared<NativeFunctionObject>("builtin:range",
+        [](const std::vector<Value>& args) -> Value {
+            ensure_arg_count("range", args, 2);
+            double start = expect_number("range", args[0]);
+            double end = expect_number("range", args[1]);
+            return Value::Object(std::make_shared<HulkRange>(start, end));
         }
     )));
 

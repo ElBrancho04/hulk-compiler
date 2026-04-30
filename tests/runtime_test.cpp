@@ -4,6 +4,7 @@
 
 #include "builtins.hpp"
 #include "environment.hpp"
+#include "hulk_range.hpp"
 #include "hulk_vector.hpp"
 #include "value_string.hpp"
 
@@ -47,6 +48,17 @@ int main() {
         std::cout << "sqrt(4) = " << to_string(sqrt_val) << std::endl;
         Value rand_val = call_builtin(env, "rand", {});
         std::cout << "rand() = " << to_string(rand_val) << std::endl;
+
+        Value range_val = call_builtin(env, "range", {Value::Number(1.0), Value::Number(4.0)});
+        auto range_obj = std::dynamic_pointer_cast<HulkRange>(range_val.object_value);
+        if (!range_obj) {
+            throw RuntimeError("range() did not return a HulkRange object");
+        }
+        std::cout << "range(1,4): ";
+        while (range_obj->next().bool_value) {
+            std::cout << to_string(range_obj->current()) << " ";
+        }
+        std::cout << std::endl;
 
         std::cout << "--- to_string ---" << std::endl;
         std::cout << to_string(Value::Number(3.5)) << std::endl;
