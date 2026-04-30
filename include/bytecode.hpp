@@ -33,13 +33,13 @@ enum class OpCode {
     LABEL,
     CALL,
     RETURN,
-    NEW_OBJ,
+    NEW,
     GET_ATTR,
     SET_ATTR,
     SELF,
     BASE_CALL,
-    IS_TYPE,
-    AS_TYPE,
+    IS,
+    AS,
     NEW_VECTOR,
     VECTOR_INDEX,
     ITER_NEXT,
@@ -107,8 +107,8 @@ struct Instruction {
         return inst;
     }
 
-    static Instruction NewObj(std::string name, int num_args) {
-        Instruction inst(OpCode::NEW_OBJ);
+    static Instruction New(std::string name, int num_args) {
+        Instruction inst(OpCode::NEW);
         inst.name = std::move(name);
         inst.count = num_args;
         return inst;
@@ -133,14 +133,14 @@ struct Instruction {
         return inst;
     }
 
-    static Instruction IsType(std::string name) {
-        Instruction inst(OpCode::IS_TYPE);
+    static Instruction Is(std::string name) {
+        Instruction inst(OpCode::IS);
         inst.name = std::move(name);
         return inst;
     }
 
-    static Instruction AsType(std::string name) {
-        Instruction inst(OpCode::AS_TYPE);
+    static Instruction As(std::string name) {
+        Instruction inst(OpCode::AS);
         inst.name = std::move(name);
         return inst;
     }
@@ -188,13 +188,13 @@ inline std::string to_string(OpCode opcode) {
         case OpCode::LABEL: return "LABEL";
         case OpCode::CALL: return "CALL";
         case OpCode::RETURN: return "RETURN";
-        case OpCode::NEW_OBJ: return "NEW";
+    case OpCode::NEW: return "NEW";
         case OpCode::GET_ATTR: return "GET_ATTR";
         case OpCode::SET_ATTR: return "SET_ATTR";
         case OpCode::SELF: return "SELF";
         case OpCode::BASE_CALL: return "BASE_CALL";
-        case OpCode::IS_TYPE: return "IS";
-        case OpCode::AS_TYPE: return "AS";
+    case OpCode::IS: return "IS";
+    case OpCode::AS: return "AS";
         case OpCode::NEW_VECTOR: return "NEW_VECTOR";
         case OpCode::VECTOR_INDEX: return "VECTOR_INDEX";
         case OpCode::ITER_NEXT: return "ITER_NEXT";
@@ -220,8 +220,8 @@ inline std::string to_string(const Instruction& inst) {
         case OpCode::ASSIGN:
         case OpCode::GET_ATTR:
         case OpCode::SET_ATTR:
-        case OpCode::IS_TYPE:
-        case OpCode::AS_TYPE:
+        case OpCode::IS:
+        case OpCode::AS:
             out << " " << inst.name;
             break;
         case OpCode::JUMP:
@@ -230,7 +230,7 @@ inline std::string to_string(const Instruction& inst) {
             out << " " << inst.offset;
             break;
         case OpCode::CALL:
-        case OpCode::NEW_OBJ:
+        case OpCode::NEW:
         case OpCode::BASE_CALL:
             out << " " << inst.name << " " << inst.count;
             break;
