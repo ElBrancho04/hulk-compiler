@@ -3,6 +3,10 @@
 
 #include <sstream>
 #include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "value.hpp"
 
 enum class OpCode {
     PUSH_CONST,
@@ -239,6 +243,54 @@ inline std::string to_string(const Instruction& inst) {
             break;
         default:
             break;
+    }
+
+    return out.str();
+}
+
+struct BytecodeProgram {
+    std::vector<Instruction> code;
+    std::vector<Value> constants;
+    std::unordered_map<std::string, std::size_t> function_table;
+
+    std::size_t addConstant(const Value& value, bool dedupe = true) {
+        if (dedupe) {
+            for (std::size_t i = 0; i < constants.size(); ++i) {
+                if (constants[i] == value) {
+                    return i;
+                }
+            }
+        }
+
+        constants.push_back(value);
+        return constants.size() - 1;
+    }
+
+    std::size_t addInstruction(const Instruction& inst) {
+        code.push_back(inst);
+        return code.size() - 1;
+    }
+
+    void addFunctionSymbol(const std::string& name, std::size_t index) {
+        function_table[name] = index;
+    }
+};
+
+inline std::string to_string(const BytecodeProgram& program) {
+    std::ostringstream out;
+    out << "== CONSTANTS ==\n";
+    for (std::size_t i = 0; i < program.constants.size(); ++i) {
+        out << i << ": " << to_string(program.constants[i]) << "\n";
+    }
+
+    out << "== CODE ==\n";
+    for (std::size_t i = 0; i < program.code.size(); ++i) {
+        out << i << ": " << to_string(program.code[i]) << "\n";
+    }
+
+    out << "== FUNCTIONS ==\n";
+    for (const auto& entry : program.function_table) {
+        out << entry.first << " -> " << entry.second << "\n";
     }
 
     return out.str();
