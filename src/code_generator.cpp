@@ -51,14 +51,86 @@ std::size_t CodeGenerator::emitAssign(const std::string& name) {
     return emit(Instruction::Assign(name));
 }
 
-void CodeGenerator::visit(NumberLiteral&) {}
-void CodeGenerator::visit(StringLiteral&) {}
-void CodeGenerator::visit(BoolLiteral&) {}
-void CodeGenerator::visit(BinaryExpr&) {}
-void CodeGenerator::visit(UnaryExpr&) {}
+void CodeGenerator::visit(NumberLiteral& node) {
+    std::size_t index = getConstantIndex(Value::Number(node.value));
+    emit(Instruction::PushConst(static_cast<int>(index)));
+}
+
+void CodeGenerator::visit(StringLiteral& node) {
+    std::size_t index = getConstantIndex(Value::String(node.value));
+    emit(Instruction::PushConst(static_cast<int>(index)));
+}
+
+void CodeGenerator::visit(BoolLiteral& node) {
+    std::size_t index = getConstantIndex(Value::Boolean(node.value));
+    emit(Instruction::PushConst(static_cast<int>(index)));
+}
+
+void CodeGenerator::visit(BinaryExpr& node) {
+    if (node.left) {
+        node.left->accept(*this);
+    }
+    if (node.right) {
+        node.right->accept(*this);
+    }
+
+    if (node.op == "+") {
+        emit(Instruction(OpCode::ADD));
+    } else if (node.op == "-") {
+        emit(Instruction(OpCode::SUB));
+    } else if (node.op == "*") {
+        emit(Instruction(OpCode::MUL));
+    } else if (node.op == "/") {
+        emit(Instruction(OpCode::DIV));
+    } else if (node.op == "^") {
+        emit(Instruction(OpCode::POW));
+    } else if (node.op == "&") {
+        emit(Instruction(OpCode::AND));
+    } else if (node.op == "|") {
+        emit(Instruction(OpCode::OR));
+    } else if (node.op == "@") {
+        emit(Instruction(OpCode::CONCAT));
+    } else if (node.op == "@@") {
+        emit(Instruction(OpCode::CONCAT_SPACE));
+    } else if (node.op == "==") {
+        emit(Instruction(OpCode::CMP_EQ));
+    } else if (node.op == "!=") {
+        emit(Instruction(OpCode::CMP_NEQ));
+    } else if (node.op == "<") {
+        emit(Instruction(OpCode::CMP_LT));
+    } else if (node.op == ">") {
+        emit(Instruction(OpCode::CMP_GT));
+    } else if (node.op == "<=") {
+        emit(Instruction(OpCode::CMP_LE));
+    } else if (node.op == ">=") {
+        emit(Instruction(OpCode::CMP_GE));
+    }
+}
+
+void CodeGenerator::visit(UnaryExpr& node) {
+    if (node.operand) {
+        node.operand->accept(*this);
+    }
+
+    if (node.op == "-") {
+        emit(Instruction(OpCode::NEG));
+    } else if (node.op == "!") {
+        emit(Instruction(OpCode::NOT));
+    }
+}
+
 void CodeGenerator::visit(BlockExpr&) {}
-void CodeGenerator::visit(VarRef&) {}
-void CodeGenerator::visit(AssignExpr&) {}
+
+void CodeGenerator::visit(VarRef& node) {
+    emitLoad(node.name);
+}
+
+void CodeGenerator::visit(AssignExpr& node) {
+    if (node.value) {
+        node.value->accept(*this);
+    }
+    emitAssign(node.name);
+}
 void CodeGenerator::visit(LetBinding&) {}
 void CodeGenerator::visit(LetExpr&) {}
 void CodeGenerator::visit(IfExpr&) {}
