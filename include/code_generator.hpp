@@ -17,6 +17,15 @@ public:
     void enterScope();
     void exitScope();
 
+    std::size_t emit(const Instruction& inst);
+    std::size_t emitJump(OpCode opcode);
+    void patchJump(std::size_t jump_index, std::size_t target_index);
+    std::size_t getConstantIndex(const Value& value, bool dedupe = true);
+
+    std::size_t emitLoad(const std::string& name);
+    std::size_t emitStore(const std::string& name);
+    std::size_t emitAssign(const std::string& name);
+
     void visit(NumberLiteral& node) override;
     void visit(StringLiteral& node) override;
     void visit(BoolLiteral& node) override;
