@@ -34,3 +34,8 @@ add_executable(runtime_test
 add_executable(bytecode_smoke_test
     tests/bytecode_smoke_test.cpp
 )
+
+add_executable(codegen_smoke_test
+    tests/codegen_smoke_test.cpp
+    src/code_generator.cpp
+)
