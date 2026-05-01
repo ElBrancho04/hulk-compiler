@@ -43,6 +43,7 @@ enum class OpCode {
     GET_ATTR,
     SET_ATTR,
     SELF,
+    METHOD_CALL,
     BASE_CALL,
     IS,
     AS,
@@ -139,6 +140,13 @@ struct Instruction {
         return inst;
     }
 
+    static Instruction MethodCall(std::string name, int num_args) {
+        Instruction inst(OpCode::METHOD_CALL);
+        inst.name = std::move(name);
+        inst.count = num_args;
+        return inst;
+    }
+
     static Instruction Is(std::string name) {
         Instruction inst(OpCode::IS);
         inst.name = std::move(name);
@@ -199,6 +207,7 @@ inline std::string to_string(OpCode opcode) {
         case OpCode::GET_ATTR: return "GET_ATTR";
         case OpCode::SET_ATTR: return "SET_ATTR";
         case OpCode::SELF: return "SELF";
+    case OpCode::METHOD_CALL: return "METHOD_CALL";
         case OpCode::BASE_CALL: return "BASE_CALL";
     case OpCode::IS: return "IS";
     case OpCode::AS: return "AS";
@@ -238,6 +247,7 @@ inline std::string to_string(const Instruction& inst) {
             break;
         case OpCode::CALL:
         case OpCode::NEW:
+        case OpCode::METHOD_CALL:
         case OpCode::BASE_CALL:
             out << " " << inst.name << " " << inst.count;
             break;

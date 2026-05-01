@@ -62,6 +62,7 @@ private:
     std::size_t constant_counter_ = 0;
     std::vector<std::unordered_set<std::string>> scopes_;
     std::unordered_map<std::string, std::string> type_info_;
+    std::string current_method_;
 };
 
 #endif

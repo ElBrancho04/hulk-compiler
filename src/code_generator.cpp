@@ -241,6 +241,8 @@ void CodeGenerator::visit(FuncCall& node) {
 }
 
 void CodeGenerator::visit(FuncDef& node) {
+    std::string previous_method = current_method_;
+    current_method_.clear();
     std::size_t start_index = program_.code.size();
     program_.addFunctionSymbol(node.name, start_index);
     emit(Instruction::Label(static_cast<int>(start_index)));
@@ -256,15 +258,58 @@ void CodeGenerator::visit(FuncDef& node) {
 
     emit(Instruction(OpCode::RETURN));
     exitScope();
+    current_method_ = previous_method;
 }
 void CodeGenerator::visit(TypeDef&) {}
 void CodeGenerator::visit(ProtocolDef&) {}
 void CodeGenerator::visit(ProtocolMethodSig&) {}
-void CodeGenerator::visit(NewExpr&) {}
-void CodeGenerator::visit(MemberAccess&) {}
-void CodeGenerator::visit(MethodCall&) {}
-void CodeGenerator::visit(SelfRef&) {}
-void CodeGenerator::visit(BaseCall&) {}
+
+void CodeGenerator::visit(NewExpr& node) {
+    for (auto& arg : node.args) {
+        if (arg) {
+            arg->accept(*this);
+        }
+    }
+
+    emit(Instruction::New(node.type_name, static_cast<int>(node.args.size())));
+}
+
+void CodeGenerator::visit(MemberAccess& node) {
+    if (node.object) {
+        node.object->accept(*this);
+    }
+
+    emit(Instruction::GetAttr(node.member_name));
+}
+
+void CodeGenerator::visit(MethodCall& node) {
+    if (node.object) {
+        node.object->accept(*this);
+    }
+
+    for (auto& arg : node.args) {
+        if (arg) {
+            arg->accept(*this);
+        }
+    }
+
+    emit(Instruction::MethodCall(node.method_name, static_cast<int>(node.args.size())));
+}
+
+void CodeGenerator::visit(SelfRef&) {
+    emit(Instruction(OpCode::SELF));
+}
+
+void CodeGenerator::visit(BaseCall& node) {
+    for (auto& arg : node.args) {
+        if (arg) {
+            arg->accept(*this);
+        }
+    }
+
+    std::string target = current_method_.empty() ? "base" : current_method_;
+    emit(Instruction::BaseCall(target, static_cast<int>(node.args.size())));
+}
 void CodeGenerator::visit(IsExpr&) {}
 void CodeGenerator::visit(AsExpr&) {}
 void CodeGenerator::visit(VectorLiteral&) {}
