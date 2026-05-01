@@ -230,8 +230,33 @@ void CodeGenerator::visit(ForExpr& node) {
 
     exitScope();
 }
-void CodeGenerator::visit(FuncCall&) {}
-void CodeGenerator::visit(FuncDef&) {}
+void CodeGenerator::visit(FuncCall& node) {
+    for (auto& arg : node.args) {
+        if (arg) {
+            arg->accept(*this);
+        }
+    }
+
+    emit(Instruction::Call(node.name, static_cast<int>(node.args.size())));
+}
+
+void CodeGenerator::visit(FuncDef& node) {
+    std::size_t start_index = program_.code.size();
+    program_.addFunctionSymbol(node.name, start_index);
+    emit(Instruction::Label(static_cast<int>(start_index)));
+
+    enterScope();
+    for (const auto& param : node.params) {
+        emitStore(param.name);
+    }
+
+    if (node.body) {
+        node.body->accept(*this);
+    }
+
+    emit(Instruction(OpCode::RETURN));
+    exitScope();
+}
 void CodeGenerator::visit(TypeDef&) {}
 void CodeGenerator::visit(ProtocolDef&) {}
 void CodeGenerator::visit(ProtocolMethodSig&) {}
@@ -246,4 +271,16 @@ void CodeGenerator::visit(VectorLiteral&) {}
 void CodeGenerator::visit(VectorComprehension&) {}
 void CodeGenerator::visit(VectorComprehensionFilter&) {}
 void CodeGenerator::visit(VectorIndex&) {}
-void CodeGenerator::visit(Program&) {}
+void CodeGenerator::visit(Program& node) {
+    for (auto& func : node.functions) {
+        if (func) {
+            func->accept(*this);
+        }
+    }
+
+    if (node.global_expression) {
+        node.global_expression->accept(*this);
+    }
+
+    emit(Instruction(OpCode::HALT));
+}

@@ -38,6 +38,7 @@ enum class OpCode {
     LABEL,
     CALL,
     RETURN,
+    HALT,
     NEW,
     GET_ATTR,
     SET_ATTR,
@@ -193,7 +194,8 @@ inline std::string to_string(OpCode opcode) {
         case OpCode::LABEL: return "LABEL";
         case OpCode::CALL: return "CALL";
         case OpCode::RETURN: return "RETURN";
-    case OpCode::NEW: return "NEW";
+        case OpCode::HALT: return "HALT";
+        case OpCode::NEW: return "NEW";
         case OpCode::GET_ATTR: return "GET_ATTR";
         case OpCode::SET_ATTR: return "SET_ATTR";
         case OpCode::SELF: return "SELF";
