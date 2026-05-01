@@ -22,6 +22,7 @@ ADD_FLEX_BISON_DEPENDENCY(MyLexer MyParser)
 # Ejecutable principal
 add_executable(hulk
     src/main.cpp
+    src/code_generator.cpp
     ${FLEX_MyLexer_OUTPUTS}
     ${BISON_MyParser_OUTPUTS}
 )
