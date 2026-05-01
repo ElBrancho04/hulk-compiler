@@ -51,6 +51,10 @@ std::size_t CodeGenerator::emitAssign(const std::string& name) {
     return emit(Instruction::Assign(name));
 }
 
+std::string CodeGenerator::makeTemp(const std::string& prefix) {
+    return prefix + std::to_string(temp_counter_++);
+}
+
 void CodeGenerator::visit(NumberLiteral& node) {
     std::size_t index = getConstantIndex(Value::Number(node.value));
     emit(Instruction::PushConst(static_cast<int>(index)));
@@ -310,12 +314,125 @@ void CodeGenerator::visit(BaseCall& node) {
     std::string target = current_method_.empty() ? "base" : current_method_;
     emit(Instruction::BaseCall(target, static_cast<int>(node.args.size())));
 }
-void CodeGenerator::visit(IsExpr&) {}
-void CodeGenerator::visit(AsExpr&) {}
-void CodeGenerator::visit(VectorLiteral&) {}
-void CodeGenerator::visit(VectorComprehension&) {}
-void CodeGenerator::visit(VectorComprehensionFilter&) {}
-void CodeGenerator::visit(VectorIndex&) {}
+void CodeGenerator::visit(IsExpr& node) {
+    if (node.expression) {
+        node.expression->accept(*this);
+    }
+    emit(Instruction::Is(node.type_name));
+}
+
+void CodeGenerator::visit(AsExpr& node) {
+    if (node.expression) {
+        node.expression->accept(*this);
+    }
+    emit(Instruction::As(node.type_name));
+}
+
+void CodeGenerator::visit(VectorLiteral& node) {
+    if (!node.elements.empty()) {
+        for (std::size_t i = node.elements.size(); i > 0; --i) {
+            auto& element = node.elements[i - 1];
+            if (element) {
+                element->accept(*this);
+            }
+        }
+    }
+
+    emit(Instruction::NewVector(static_cast<int>(node.elements.size())));
+}
+
+void CodeGenerator::visit(VectorComprehension& node) {
+    enterScope();
+
+    std::string iter_name = makeTemp("_iter");
+    std::string vec_name = makeTemp("_vec");
+
+    if (node.iterable) {
+        node.iterable->accept(*this);
+    }
+    emitStore(iter_name);
+
+    emit(Instruction::VectorInit());
+    emitStore(vec_name);
+
+    std::size_t loop_start = program_.code.size();
+    emitLoad(iter_name);
+    emit(Instruction(OpCode::ITER_NEXT));
+    std::size_t exit_jump = emitJump(OpCode::JUMP_IF_FALSE);
+
+    emitLoad(iter_name);
+    emit(Instruction(OpCode::ITER_CURRENT));
+    emitStore(node.variable_name);
+
+    emitLoad(vec_name);
+    if (node.generator) {
+        node.generator->accept(*this);
+    }
+    emit(Instruction::VectorPush());
+    emitStore(vec_name);
+
+    std::size_t back_jump = emitJump(OpCode::JUMP);
+    patchJump(back_jump, loop_start);
+    patchJump(exit_jump, program_.code.size());
+
+    emitLoad(vec_name);
+    exitScope();
+}
+
+void CodeGenerator::visit(VectorComprehensionFilter& node) {
+    enterScope();
+
+    std::string iter_name = makeTemp("_iter");
+    std::string vec_name = makeTemp("_vec");
+
+    if (node.iterable) {
+        node.iterable->accept(*this);
+    }
+    emitStore(iter_name);
+
+    emit(Instruction::VectorInit());
+    emitStore(vec_name);
+
+    std::size_t loop_start = program_.code.size();
+    emitLoad(iter_name);
+    emit(Instruction(OpCode::ITER_NEXT));
+    std::size_t exit_jump = emitJump(OpCode::JUMP_IF_FALSE);
+
+    emitLoad(iter_name);
+    emit(Instruction(OpCode::ITER_CURRENT));
+    emitStore(node.variable_name);
+
+    if (node.filter) {
+        node.filter->accept(*this);
+    }
+    std::size_t skip_jump = emitJump(OpCode::JUMP_IF_FALSE);
+
+    emitLoad(vec_name);
+    if (node.generator) {
+        node.generator->accept(*this);
+    }
+    emit(Instruction::VectorPush());
+    emitStore(vec_name);
+
+    patchJump(skip_jump, program_.code.size());
+
+    std::size_t back_jump = emitJump(OpCode::JUMP);
+    patchJump(back_jump, loop_start);
+    patchJump(exit_jump, program_.code.size());
+
+    emitLoad(vec_name);
+    exitScope();
+}
+
+void CodeGenerator::visit(VectorIndex& node) {
+    if (node.vector) {
+        node.vector->accept(*this);
+    }
+    if (node.index) {
+        node.index->accept(*this);
+    }
+    emit(Instruction(OpCode::VECTOR_INDEX));
+}
 void CodeGenerator::visit(Program& node) {
     for (auto& func : node.functions) {
         if (func) {

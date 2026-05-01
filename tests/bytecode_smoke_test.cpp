@@ -48,6 +48,8 @@ int main() {
         program.addInstruction(Instruction::Is("Point"));
         program.addInstruction(Instruction::As("Point"));
         program.addInstruction(Instruction::NewVector(3));
+    program.addInstruction(Instruction(OpCode::VECTOR_INIT));
+    program.addInstruction(Instruction(OpCode::VECTOR_PUSH));
         program.addInstruction(Instruction(OpCode::VECTOR_INDEX));
         program.addInstruction(Instruction(OpCode::ITER_NEXT));
         program.addInstruction(Instruction(OpCode::ITER_CURRENT));

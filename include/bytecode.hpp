@@ -48,6 +48,8 @@ enum class OpCode {
     IS,
     AS,
     NEW_VECTOR,
+    VECTOR_INIT,
+    VECTOR_PUSH,
     VECTOR_INDEX,
     ITER_NEXT,
     ITER_CURRENT,
@@ -165,6 +167,14 @@ struct Instruction {
         return inst;
     }
 
+    static Instruction VectorInit() {
+        return Instruction(OpCode::VECTOR_INIT);
+    }
+
+    static Instruction VectorPush() {
+        return Instruction(OpCode::VECTOR_PUSH);
+    }
+
     static Instruction Label(int index) {
         Instruction inst(OpCode::LABEL);
         inst.index = index;
@@ -212,6 +222,8 @@ inline std::string to_string(OpCode opcode) {
     case OpCode::IS: return "IS";
     case OpCode::AS: return "AS";
         case OpCode::NEW_VECTOR: return "NEW_VECTOR";
+    case OpCode::VECTOR_INIT: return "VECTOR_INIT";
+    case OpCode::VECTOR_PUSH: return "VECTOR_PUSH";
         case OpCode::VECTOR_INDEX: return "VECTOR_INDEX";
         case OpCode::ITER_NEXT: return "ITER_NEXT";
         case OpCode::ITER_CURRENT: return "ITER_CURRENT";

@@ -26,6 +26,8 @@ public:
     std::size_t emitStore(const std::string& name);
     std::size_t emitAssign(const std::string& name);
 
+    std::string makeTemp(const std::string& prefix);
+
     void visit(NumberLiteral& node) override;
     void visit(StringLiteral& node) override;
     void visit(BoolLiteral& node) override;
@@ -63,6 +65,7 @@ private:
     std::vector<std::unordered_set<std::string>> scopes_;
     std::unordered_map<std::string, std::string> type_info_;
     std::string current_method_;
+    std::size_t temp_counter_ = 0;
 };
 
 #endif
