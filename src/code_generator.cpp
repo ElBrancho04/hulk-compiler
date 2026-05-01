@@ -161,6 +161,7 @@ void CodeGenerator::visit(LetExpr& node) {
     }
 
     exitScope();
+    emit(Instruction(OpCode::POP_SCOPE));
 }
 void CodeGenerator::visit(IfExpr& node) {
     std::vector<std::size_t> end_jumps;
@@ -264,7 +265,35 @@ void CodeGenerator::visit(FuncDef& node) {
     exitScope();
     current_method_ = previous_method;
 }
-void CodeGenerator::visit(TypeDef&) {}
+void CodeGenerator::visit(TypeDef& node) {
+    for (auto& method : node.methods) {
+        if (!method) {
+            continue;
+        }
+
+        std::string previous_method = current_method_;
+        current_method_ = method->name;
+
+        std::string symbol = node.name + "." + method->name;
+        std::size_t start_index = program_.code.size();
+        program_.addFunctionSymbol(symbol, start_index);
+        emit(Instruction::Label(static_cast<int>(start_index)));
+
+        enterScope();
+        for (const auto& param : method->params) {
+            emitStore(param.name);
+        }
+
+        if (method->body) {
+            method->body->accept(*this);
+        }
+
+        emit(Instruction(OpCode::RETURN));
+        exitScope();
+
+        current_method_ = previous_method;
+    }
+}
 void CodeGenerator::visit(ProtocolDef&) {}
 void CodeGenerator::visit(ProtocolMethodSig&) {}
 
@@ -434,6 +463,12 @@ void CodeGenerator::visit(VectorIndex& node) {
     emit(Instruction(OpCode::VECTOR_INDEX));
 }
 void CodeGenerator::visit(Program& node) {
+    for (auto& type_def : node.types) {
+        if (type_def) {
+            type_def->accept(*this);
+        }
+    }
+
     for (auto& func : node.functions) {
         if (func) {
             func->accept(*this);

@@ -17,6 +17,7 @@ int main() {
         program.addInstruction(Instruction::Store("x"));
         program.addInstruction(Instruction::Assign("x"));
         program.addInstruction(Instruction(OpCode::POP));
+    program.addInstruction(Instruction(OpCode::POP_SCOPE));
         program.addInstruction(Instruction(OpCode::ADD));
         program.addInstruction(Instruction(OpCode::SUB));
         program.addInstruction(Instruction(OpCode::MUL));
