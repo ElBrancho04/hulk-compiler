@@ -158,9 +158,78 @@ void CodeGenerator::visit(LetExpr& node) {
 
     exitScope();
 }
-void CodeGenerator::visit(IfExpr&) {}
-void CodeGenerator::visit(WhileExpr&) {}
-void CodeGenerator::visit(ForExpr&) {}
+void CodeGenerator::visit(IfExpr& node) {
+    std::vector<std::size_t> end_jumps;
+
+    for (auto& branch : node.branches) {
+        if (branch.condition) {
+            branch.condition->accept(*this);
+        }
+
+        std::size_t false_jump = emitJump(OpCode::JUMP_IF_FALSE);
+
+        if (branch.body) {
+            branch.body->accept(*this);
+        }
+
+        std::size_t end_jump = emitJump(OpCode::JUMP);
+        end_jumps.push_back(end_jump);
+
+        patchJump(false_jump, program_.code.size());
+    }
+
+    if (node.else_body) {
+        node.else_body->accept(*this);
+    }
+
+    std::size_t end_target = program_.code.size();
+    for (std::size_t jump : end_jumps) {
+        patchJump(jump, end_target);
+    }
+}
+
+void CodeGenerator::visit(WhileExpr& node) {
+    std::size_t loop_start = program_.code.size();
+
+    if (node.condition) {
+        node.condition->accept(*this);
+    }
+
+    std::size_t exit_jump = emitJump(OpCode::JUMP_IF_FALSE);
+
+    if (node.body) {
+        node.body->accept(*this);
+    }
+
+    std::size_t back_jump = emitJump(OpCode::JUMP);
+    patchJump(back_jump, loop_start);
+    patchJump(exit_jump, program_.code.size());
+}
+
+void CodeGenerator::visit(ForExpr& node) {
+    enterScope();
+
+    if (node.iterable) {
+        node.iterable->accept(*this);
+    }
+
+    std::size_t loop_start = program_.code.size();
+    emit(Instruction(OpCode::ITER_NEXT));
+    std::size_t exit_jump = emitJump(OpCode::JUMP_IF_FALSE);
+
+    emit(Instruction(OpCode::ITER_CURRENT));
+    emitStore(node.variable_name);
+
+    if (node.body) {
+        node.body->accept(*this);
+    }
+
+    std::size_t back_jump = emitJump(OpCode::JUMP);
+    patchJump(back_jump, loop_start);
+    patchJump(exit_jump, program_.code.size());
+
+    exitScope();
+}
 void CodeGenerator::visit(FuncCall&) {}
 void CodeGenerator::visit(FuncDef&) {}
 void CodeGenerator::visit(TypeDef&) {}
