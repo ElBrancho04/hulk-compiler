@@ -119,7 +119,17 @@ void CodeGenerator::visit(UnaryExpr& node) {
     }
 }
 
-void CodeGenerator::visit(BlockExpr&) {}
+void CodeGenerator::visit(BlockExpr& node) {
+    for (std::size_t i = 0; i < node.expressions.size(); ++i) {
+        if (node.expressions[i]) {
+            node.expressions[i]->accept(*this);
+        }
+
+        if (i + 1 < node.expressions.size()) {
+            emit(Instruction(OpCode::POP));
+        }
+    }
+}
 
 void CodeGenerator::visit(VarRef& node) {
     emitLoad(node.name);
@@ -132,7 +142,22 @@ void CodeGenerator::visit(AssignExpr& node) {
     emitAssign(node.name);
 }
 void CodeGenerator::visit(LetBinding&) {}
-void CodeGenerator::visit(LetExpr&) {}
+void CodeGenerator::visit(LetExpr& node) {
+    enterScope();
+
+    for (auto& binding : node.bindings) {
+        if (binding.initializer) {
+            binding.initializer->accept(*this);
+        }
+        emitStore(binding.name);
+    }
+
+    if (node.body) {
+        node.body->accept(*this);
+    }
+
+    exitScope();
+}
 void CodeGenerator::visit(IfExpr&) {}
 void CodeGenerator::visit(WhileExpr&) {}
 void CodeGenerator::visit(ForExpr&) {}
