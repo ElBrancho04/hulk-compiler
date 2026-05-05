@@ -1,5 +1,7 @@
 #include "vm.hpp"
 
+#include <cmath>
+
 #include "runtime_error.hpp"
 
 VM::VM()
@@ -21,6 +23,30 @@ void VM::execute(BytecodeProgram& program) {
         Value value = stack_.back();
         stack_.pop_back();
         return value;
+    };
+
+    auto popNumber = [&](const std::string& op) -> double {
+        Value value = popValue();
+        if (value.type != ValueType::Number) {
+            throw RuntimeError("Expected Number for " + op);
+        }
+        return value.number_value;
+    };
+
+    auto popBoolean = [&](const std::string& op) -> bool {
+        Value value = popValue();
+        if (value.type != ValueType::Boolean) {
+            throw RuntimeError("Expected Boolean for " + op);
+        }
+        return value.bool_value;
+    };
+
+    auto popString = [&](const std::string& op) -> std::string {
+        Value value = popValue();
+        if (value.type != ValueType::String) {
+            throw RuntimeError("Expected String for " + op);
+        }
+        return value.string_value;
     };
 
     while (ip_ < code.size()) {
@@ -57,6 +83,109 @@ void VM::execute(BytecodeProgram& program) {
                 if (current_env_ && current_env_->parent) {
                     current_env_ = current_env_->parent;
                 }
+                break;
+            }
+            case OpCode::ADD: {
+                double rhs = popNumber("ADD");
+                double lhs = popNumber("ADD");
+                stack_.push_back(Value::Number(lhs + rhs));
+                break;
+            }
+            case OpCode::SUB: {
+                double rhs = popNumber("SUB");
+                double lhs = popNumber("SUB");
+                stack_.push_back(Value::Number(lhs - rhs));
+                break;
+            }
+            case OpCode::MUL: {
+                double rhs = popNumber("MUL");
+                double lhs = popNumber("MUL");
+                stack_.push_back(Value::Number(lhs * rhs));
+                break;
+            }
+            case OpCode::DIV: {
+                double rhs = popNumber("DIV");
+                double lhs = popNumber("DIV");
+                if (rhs == 0.0) {
+                    throw RuntimeError("Division by zero");
+                }
+                stack_.push_back(Value::Number(lhs / rhs));
+                break;
+            }
+            case OpCode::POW: {
+                double rhs = popNumber("POW");
+                double lhs = popNumber("POW");
+                stack_.push_back(Value::Number(std::pow(lhs, rhs)));
+                break;
+            }
+            case OpCode::NEG: {
+                double value = popNumber("NEG");
+                stack_.push_back(Value::Number(-value));
+                break;
+            }
+            case OpCode::NOT: {
+                bool value = popBoolean("NOT");
+                stack_.push_back(Value::Boolean(!value));
+                break;
+            }
+            case OpCode::AND: {
+                bool rhs = popBoolean("AND");
+                bool lhs = popBoolean("AND");
+                stack_.push_back(Value::Boolean(lhs && rhs));
+                break;
+            }
+            case OpCode::OR: {
+                bool rhs = popBoolean("OR");
+                bool lhs = popBoolean("OR");
+                stack_.push_back(Value::Boolean(lhs || rhs));
+                break;
+            }
+            case OpCode::CONCAT: {
+                std::string rhs = popString("CONCAT");
+                std::string lhs = popString("CONCAT");
+                stack_.push_back(Value::String(lhs + rhs));
+                break;
+            }
+            case OpCode::CONCAT_SPACE: {
+                std::string rhs = popString("CONCAT_SPACE");
+                std::string lhs = popString("CONCAT_SPACE");
+                stack_.push_back(Value::String(lhs + " " + rhs));
+                break;
+            }
+            case OpCode::CMP_EQ: {
+                Value rhs = popValue();
+                Value lhs = popValue();
+                stack_.push_back(Value::Boolean(lhs == rhs));
+                break;
+            }
+            case OpCode::CMP_NEQ: {
+                Value rhs = popValue();
+                Value lhs = popValue();
+                stack_.push_back(Value::Boolean(lhs != rhs));
+                break;
+            }
+            case OpCode::CMP_LT: {
+                double rhs = popNumber("CMP_LT");
+                double lhs = popNumber("CMP_LT");
+                stack_.push_back(Value::Boolean(lhs < rhs));
+                break;
+            }
+            case OpCode::CMP_GT: {
+                double rhs = popNumber("CMP_GT");
+                double lhs = popNumber("CMP_GT");
+                stack_.push_back(Value::Boolean(lhs > rhs));
+                break;
+            }
+            case OpCode::CMP_LE: {
+                double rhs = popNumber("CMP_LE");
+                double lhs = popNumber("CMP_LE");
+                stack_.push_back(Value::Boolean(lhs <= rhs));
+                break;
+            }
+            case OpCode::CMP_GE: {
+                double rhs = popNumber("CMP_GE");
+                double lhs = popNumber("CMP_GE");
+                stack_.push_back(Value::Boolean(lhs >= rhs));
                 break;
             }
             default:
