@@ -1,12 +1,14 @@
 #include "vm.hpp"
 
+#include <algorithm>
 #include <cmath>
 
+#include "builtins.hpp"
 #include "runtime_error.hpp"
 
 VM::VM()
-    : global_env_(std::make_shared<Environment>()),
-      current_env_(global_env_) {}
+        : global_env_(create_global_env()),
+            current_env_(global_env_) {}
 
 void VM::execute(BytecodeProgram& program) {
     constants_ = &program.constants;
@@ -14,6 +16,7 @@ void VM::execute(BytecodeProgram& program) {
     stack_.clear();
     call_stack_.clear();
     current_env_ = global_env_;
+    current_self_ = Value::Null();
     const auto& code = program.code;
 
     auto popValue = [&]() -> Value {
@@ -207,6 +210,57 @@ void VM::execute(BytecodeProgram& program) {
                     ip_ = static_cast<std::size_t>(static_cast<long long>(ip_ + 1) + inst.offset);
                     advance_ip = false;
                 }
+                break;
+            }
+            case OpCode::CALL: {
+                if (inst.count < 0) {
+                    throw RuntimeError("Invalid CALL arg count");
+                }
+                std::size_t argc = static_cast<std::size_t>(inst.count);
+                std::vector<Value> args_rev;
+                args_rev.reserve(argc);
+                for (std::size_t i = 0; i < argc; ++i) {
+                    args_rev.push_back(popValue());
+                }
+                std::vector<Value> args(args_rev.rbegin(), args_rev.rend());
+
+                auto it = program.function_table.find(inst.name);
+                if (it != program.function_table.end()) {
+                    for (const auto& value : args_rev) {
+                        stack_.push_back(value);
+                    }
+                    call_stack_.push_back({ip_ + 1, current_env_, current_self_});
+                    current_env_ = std::make_shared<Environment>(global_env_);
+                    current_self_ = Value::Null();
+                    ip_ = it->second;
+                    advance_ip = false;
+                    break;
+                }
+
+                Value builtin_value = global_env_->get(inst.name);
+                if (builtin_value.type != ValueType::Object || !builtin_value.object_value) {
+                    throw RuntimeError("Undefined function: " + inst.name);
+                }
+                auto builtin = std::dynamic_pointer_cast<NativeFunctionObject>(builtin_value.object_value);
+                if (!builtin) {
+                    throw RuntimeError("Symbol is not callable: " + inst.name);
+                }
+                Value result = builtin->function(args);
+                stack_.push_back(result);
+                break;
+            }
+            case OpCode::RETURN: {
+                Value return_value = popValue();
+                if (call_stack_.empty()) {
+                    throw RuntimeError("RETURN with empty call stack");
+                }
+                CallFrame frame = call_stack_.back();
+                call_stack_.pop_back();
+                current_env_ = frame.env;
+                current_self_ = frame.self;
+                ip_ = frame.return_ip;
+                stack_.push_back(return_value);
+                advance_ip = false;
                 break;
             }
             default:

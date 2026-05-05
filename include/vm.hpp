@@ -26,6 +26,7 @@ private:
     const std::vector<Value>* constants_ = nullptr;
     std::shared_ptr<Environment> global_env_;
     std::shared_ptr<Environment> current_env_;
+    Value current_self_ = Value::Null();
     std::size_t ip_ = 0;
     std::vector<CallFrame> call_stack_;
 };
