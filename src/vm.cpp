@@ -5,6 +5,8 @@
 
 #include "builtins.hpp"
 #include "hulk_object.hpp"
+#include "hulk_range.hpp"
+#include "hulk_vector.hpp"
 #include "runtime_error.hpp"
 
 VM::VM()
@@ -59,6 +61,23 @@ void VM::execute(BytecodeProgram& program) {
             throw RuntimeError("Expected Object for " + op);
         }
         return value.object_value;
+    };
+
+    auto popVector = [&](const std::string& op) -> std::shared_ptr<HulkVector> {
+        Value value = popValue();
+        if (value.type != ValueType::Vector || !value.vector_value) {
+            throw RuntimeError("Expected Vector for " + op);
+        }
+        return value.vector_value;
+    };
+
+    auto popRange = [&](const std::string& op) -> std::shared_ptr<HulkRange> {
+        auto obj = popObject(op);
+        auto range = std::dynamic_pointer_cast<HulkRange>(obj);
+        if (!range) {
+            throw RuntimeError("Expected Range for " + op);
+        }
+        return range;
     };
 
     while (ip_ < code.size()) {
@@ -362,6 +381,62 @@ void VM::execute(BytecodeProgram& program) {
                     throw RuntimeError("Invalid downcast to " + inst.name);
                 }
                 stack_.push_back(Value::Object(obj));
+                break;
+            }
+            case OpCode::NEW_VECTOR: {
+                if (inst.count < 0) {
+                    throw RuntimeError("Invalid NEW_VECTOR count");
+                }
+                std::size_t count = static_cast<std::size_t>(inst.count);
+                std::vector<Value> elements;
+                elements.reserve(count);
+                for (std::size_t i = 0; i < count; ++i) {
+                    elements.push_back(popValue());
+                }
+                std::reverse(elements.begin(), elements.end());
+                auto vec = std::make_shared<HulkVector>(std::move(elements));
+                stack_.push_back(Value::Vector(vec));
+                break;
+            }
+            case OpCode::VECTOR_INIT: {
+                auto vec = std::make_shared<HulkVector>();
+                stack_.push_back(Value::Vector(vec));
+                break;
+            }
+            case OpCode::VECTOR_PUSH: {
+                Value value = popValue();
+                auto vec = popVector("VECTOR_PUSH");
+                vec->elements.push_back(value);
+                stack_.push_back(Value::Vector(vec));
+                break;
+            }
+            case OpCode::VECTOR_INDEX: {
+                double index_value = popNumber("VECTOR_INDEX");
+                auto vec = popVector("VECTOR_INDEX");
+                if (index_value < 0.0) {
+                    throw RuntimeError("Vector index out of range");
+                }
+                std::size_t index = static_cast<std::size_t>(index_value);
+                if (index >= vec->size()) {
+                    throw RuntimeError("Vector index out of range");
+                }
+                stack_.push_back(vec->at(index));
+                break;
+            }
+            case OpCode::SIZE: {
+                auto vec = popVector("SIZE");
+                stack_.push_back(Value::Number(static_cast<double>(vec->size())));
+                break;
+            }
+            case OpCode::ITER_NEXT: {
+                auto range = popRange("ITER_NEXT");
+                Value result = range->next();
+                stack_.push_back(Value::Boolean(result.bool_value));
+                break;
+            }
+            case OpCode::ITER_CURRENT: {
+                auto range = popRange("ITER_CURRENT");
+                stack_.push_back(range->current());
                 break;
             }
             default:
