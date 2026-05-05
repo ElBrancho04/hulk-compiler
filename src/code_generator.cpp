@@ -148,6 +148,7 @@ void CodeGenerator::visit(AssignExpr& node) {
 void CodeGenerator::visit(LetBinding&) {}
 void CodeGenerator::visit(LetExpr& node) {
     enterScope();
+    emit(Instruction(OpCode::BEGIN_SCOPE));
 
     for (auto& binding : node.bindings) {
         if (binding.initializer) {

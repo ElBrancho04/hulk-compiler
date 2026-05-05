@@ -16,6 +16,7 @@ enum class OpCode {
     ASSIGN,
     POP,
     POP_SCOPE,
+    BEGIN_SCOPE,
     ADD,
     SUB,
     MUL,
@@ -191,6 +192,7 @@ inline std::string to_string(OpCode opcode) {
         case OpCode::ASSIGN: return "ASSIGN";
         case OpCode::POP: return "POP";
     case OpCode::POP_SCOPE: return "POP_SCOPE";
+    case OpCode::BEGIN_SCOPE: return "BEGIN_SCOPE";
         case OpCode::ADD: return "ADD";
         case OpCode::SUB: return "SUB";
         case OpCode::MUL: return "MUL";

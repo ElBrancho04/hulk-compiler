@@ -116,6 +116,10 @@ void VM::execute(BytecodeProgram& program) {
                 }
                 break;
             }
+            case OpCode::BEGIN_SCOPE: {
+                current_env_ = std::make_shared<Environment>(current_env_);
+                break;
+            }
             case OpCode::ADD: {
                 double rhs = popNumber("ADD");
                 double lhs = popNumber("ADD");
