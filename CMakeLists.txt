@@ -40,3 +40,8 @@ add_executable(codegen_smoke_test
     tests/codegen_smoke_test.cpp
     src/code_generator.cpp
 )
+
+add_executable(vm_smoke_test
+    tests/vm_smoke_test.cpp
+    src/vm.cpp
+)

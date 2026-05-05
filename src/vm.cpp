@@ -13,6 +13,22 @@ VM::VM()
         : global_env_(create_global_env()),
             current_env_(global_env_) {}
 
+Value VM::popStack() {
+    if (stack_.empty()) {
+        throw RuntimeError("VM stack underflow");
+    }
+    Value value = stack_.back();
+    stack_.pop_back();
+    return value;
+}
+
+Value VM::peekStack() const {
+    if (stack_.empty()) {
+        throw RuntimeError("VM stack underflow");
+    }
+    return stack_.back();
+}
+
 void VM::execute(BytecodeProgram& program) {
     constants_ = &program.constants;
     ip_ = 0;
@@ -449,6 +465,9 @@ void VM::execute(BytecodeProgram& program) {
                 auto range = std::make_shared<HulkRange>(start, end);
                 stack_.push_back(Value::Object(range));
                 break;
+            }
+            case OpCode::HALT: {
+                return;
             }
             default:
                 break;

@@ -20,6 +20,8 @@ public:
     VM();
 
     void execute(BytecodeProgram& program);
+    Value popStack();
+    Value peekStack() const;
 
 private:
     std::vector<Value> stack_;
