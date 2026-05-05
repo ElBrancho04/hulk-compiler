@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "builtins.hpp"
+#include "hulk_object.hpp"
 #include "runtime_error.hpp"
 
 VM::VM()
@@ -50,6 +51,14 @@ void VM::execute(BytecodeProgram& program) {
             throw RuntimeError("Expected String for " + op);
         }
         return value.string_value;
+    };
+
+    auto popObject = [&](const std::string& op) -> std::shared_ptr<HulkObject> {
+        Value value = popValue();
+        if (value.type != ValueType::Object || !value.object_value) {
+            throw RuntimeError("Expected Object for " + op);
+        }
+        return value.object_value;
     };
 
     while (ip_ < code.size()) {
@@ -261,6 +270,98 @@ void VM::execute(BytecodeProgram& program) {
                 ip_ = frame.return_ip;
                 stack_.push_back(return_value);
                 advance_ip = false;
+                break;
+            }
+            case OpCode::NEW: {
+                auto obj = std::make_shared<HulkObject>(inst.name);
+                stack_.push_back(Value::Object(obj));
+                break;
+            }
+            case OpCode::GET_ATTR: {
+                auto obj = popObject("GET_ATTR");
+                if (!obj->hasAttribute(inst.name)) {
+                    throw RuntimeError("Unknown attribute: " + inst.name);
+                }
+                stack_.push_back(obj->getAttribute(inst.name));
+                break;
+            }
+            case OpCode::SET_ATTR: {
+                Value value = popValue();
+                auto obj = popObject("SET_ATTR");
+                obj->setAttribute(inst.name, value);
+                stack_.push_back(Value::Object(obj));
+                break;
+            }
+            case OpCode::SELF: {
+                stack_.push_back(current_self_);
+                break;
+            }
+            case OpCode::METHOD_CALL: {
+                if (inst.count < 0) {
+                    throw RuntimeError("Invalid METHOD_CALL arg count");
+                }
+                std::size_t argc = static_cast<std::size_t>(inst.count);
+                std::vector<Value> args_rev;
+                args_rev.reserve(argc);
+                for (std::size_t i = 0; i < argc; ++i) {
+                    args_rev.push_back(popValue());
+                }
+                auto obj = popObject("METHOD_CALL");
+                std::vector<Value> args(args_rev.rbegin(), args_rev.rend());
+
+                std::string symbol = obj->type_name + "." + inst.name;
+                auto it = program.function_table.find(symbol);
+                if (it == program.function_table.end()) {
+                    throw RuntimeError("Unknown method: " + symbol);
+                }
+
+                for (const auto& value : args_rev) {
+                    stack_.push_back(value);
+                }
+                call_stack_.push_back({ip_ + 1, current_env_, current_self_});
+                current_env_ = std::make_shared<Environment>(global_env_);
+                current_self_ = Value::Object(obj);
+                ip_ = it->second;
+                advance_ip = false;
+                break;
+            }
+            case OpCode::BASE_CALL: {
+                if (inst.count < 0) {
+                    throw RuntimeError("Invalid BASE_CALL arg count");
+                }
+                std::size_t argc = static_cast<std::size_t>(inst.count);
+                std::vector<Value> args_rev;
+                args_rev.reserve(argc);
+                for (std::size_t i = 0; i < argc; ++i) {
+                    args_rev.push_back(popValue());
+                }
+                std::vector<Value> args(args_rev.rbegin(), args_rev.rend());
+
+                auto it = program.function_table.find(inst.name);
+                if (it == program.function_table.end()) {
+                    throw RuntimeError("Unknown base method: " + inst.name);
+                }
+
+                for (const auto& value : args_rev) {
+                    stack_.push_back(value);
+                }
+                call_stack_.push_back({ip_ + 1, current_env_, current_self_});
+                current_env_ = std::make_shared<Environment>(global_env_);
+                ip_ = it->second;
+                advance_ip = false;
+                break;
+            }
+            case OpCode::IS: {
+                auto obj = popObject("IS");
+                stack_.push_back(Value::Boolean(obj->type_name == inst.name));
+                break;
+            }
+            case OpCode::AS: {
+                auto obj = popObject("AS");
+                if (obj->type_name != inst.name) {
+                    throw RuntimeError("Invalid downcast to " + inst.name);
+                }
+                stack_.push_back(Value::Object(obj));
                 break;
             }
             default:
