@@ -439,6 +439,13 @@ void VM::execute(BytecodeProgram& program) {
                 stack_.push_back(range->current());
                 break;
             }
+            case OpCode::RANGE: {
+                double end = popNumber("RANGE");
+                double start = popNumber("RANGE");
+                auto range = std::make_shared<HulkRange>(start, end);
+                stack_.push_back(Value::Object(range));
+                break;
+            }
             default:
                 break;
         }
