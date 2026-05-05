@@ -188,6 +188,27 @@ void VM::execute(BytecodeProgram& program) {
                 stack_.push_back(Value::Boolean(lhs >= rhs));
                 break;
             }
+            case OpCode::JUMP: {
+                ip_ = static_cast<std::size_t>(static_cast<long long>(ip_ + 1) + inst.offset);
+                advance_ip = false;
+                break;
+            }
+            case OpCode::JUMP_IF_FALSE: {
+                bool condition = popBoolean("JUMP_IF_FALSE");
+                if (!condition) {
+                    ip_ = static_cast<std::size_t>(static_cast<long long>(ip_ + 1) + inst.offset);
+                    advance_ip = false;
+                }
+                break;
+            }
+            case OpCode::JUMP_IF_TRUE: {
+                bool condition = popBoolean("JUMP_IF_TRUE");
+                if (condition) {
+                    ip_ = static_cast<std::size_t>(static_cast<long long>(ip_ + 1) + inst.offset);
+                    advance_ip = false;
+                }
+                break;
+            }
             default:
                 break;
         }
