@@ -145,6 +145,36 @@ std::string TypeTable::lowest_common_ancestor(const std::string& a, const std::s
     return kObjectType;
 }
 
+void TypeTable::ensure_vector_type(const std::string& element_type) {
+    const std::string type_name = make_vector_type(element_type);
+    if (types_.count(type_name) > 0) {
+        return;
+    }
+
+    ensure_element_type(element_type);
+
+    TypeInfo info{type_name, kObjectType};
+    info.methods.emplace("size", MethodSig({}, kNumberType));
+    info.methods.emplace("iter", MethodSig({}, make_iterable_type(element_type)));
+    register_type(std::move(info));
+    synthetic_types_.insert(type_name);
+}
+
+void TypeTable::ensure_iterable_type(const std::string& element_type) {
+    const std::string type_name = make_iterable_type(element_type);
+    if (types_.count(type_name) > 0) {
+        return;
+    }
+
+    ensure_element_type(element_type);
+
+    TypeInfo info{type_name, kObjectType};
+    info.methods.emplace("next", MethodSig({}, kBooleanType));
+    info.methods.emplace("current", MethodSig({}, element_type));
+    register_type(std::move(info));
+    synthetic_types_.insert(type_name);
+}
+
 std::string TypeTable::make_vector_type(const std::string& element_type) {
     return std::string(kVectorPrefix) + element_type + kContainerSuffix;
 }
@@ -181,4 +211,19 @@ bool TypeTable::parse_container_type(const std::string& type_name,
 
 bool TypeTable::is_synthetic_type(const std::string& type_name) const {
     return is_vector_type(type_name) || is_iterable_type(type_name);
+}
+
+void TypeTable::ensure_element_type(const std::string& element_type) {
+    std::string inner;
+    if (is_vector_type(element_type, &inner)) {
+        ensure_vector_type(inner);
+        return;
+    }
+    if (is_iterable_type(element_type, &inner)) {
+        ensure_iterable_type(inner);
+        return;
+    }
+    if (!has_type(element_type)) {
+        throw std::runtime_error("TypeTable: tipo elemento inexistente: " + element_type);
+    }
 }

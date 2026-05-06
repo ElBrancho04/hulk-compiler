@@ -43,6 +43,9 @@ public:
     bool conforms_to(const std::string& derived, const std::string& target) const;
     std::string lowest_common_ancestor(const std::string& a, const std::string& b) const;
 
+    void ensure_vector_type(const std::string& element_type);
+    void ensure_iterable_type(const std::string& element_type);
+
     static std::string make_vector_type(const std::string& element_type);
     static std::string make_iterable_type(const std::string& element_type);
     static bool is_vector_type(const std::string& type_name, std::string* element_out = nullptr);
@@ -51,12 +54,14 @@ public:
 private:
     std::unordered_map<std::string, TypeInfo> types_;
     std::unordered_set<std::string> final_types_;
+    std::unordered_set<std::string> synthetic_types_;
 
     void register_builtin_types();
     static bool parse_container_type(const std::string& type_name,
                                      const std::string& prefix,
                                      std::string* element_out);
     bool is_synthetic_type(const std::string& type_name) const;
+    void ensure_element_type(const std::string& element_type);
 };
 
 #endif

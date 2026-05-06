@@ -20,13 +20,29 @@ int main() {
 
     assert(table.lowest_common_ancestor("Foo", "Bar") == "Foo");
 
+    table.ensure_vector_type("Number");
+    table.ensure_vector_type("Object");
+
     const auto vec_number = TypeTable::make_vector_type("Number");
     const auto vec_object = TypeTable::make_vector_type("Object");
     assert(table.conforms_to(vec_number, vec_object));
 
+    table.ensure_iterable_type("Number");
+    table.ensure_iterable_type("Object");
+
     const auto iter_number = TypeTable::make_iterable_type("Number");
     const auto iter_object = TypeTable::make_iterable_type("Object");
     assert(table.lowest_common_ancestor(iter_number, iter_object) == iter_object);
+
+    const auto& vec_info = table.get_type(vec_number);
+    assert(vec_info.methods.count("size") == 1);
+    assert(vec_info.methods.count("iter") == 1);
+    assert(vec_info.methods.at("iter").return_type == iter_number);
+
+    const auto& iter_info = table.get_type(iter_number);
+    assert(iter_info.methods.count("next") == 1);
+    assert(iter_info.methods.count("current") == 1);
+    assert(iter_info.methods.at("current").return_type == "Number");
 
     bool caught = false;
     try {
