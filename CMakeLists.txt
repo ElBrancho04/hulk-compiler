@@ -24,6 +24,7 @@ add_executable(hulk
     src/main.cpp
     src/code_generator.cpp
     src/vm.cpp
+    src/type_table.cpp
     ${FLEX_MyLexer_OUTPUTS}
     ${BISON_MyParser_OUTPUTS}
 )
@@ -44,4 +45,9 @@ add_executable(codegen_smoke_test
 add_executable(vm_smoke_test
     tests/vm_smoke_test.cpp
     src/vm.cpp
+)
+
+add_executable(type_table_smoke_test
+    tests/type_table_smoke_test.cpp
+    src/type_table.cpp
 )
