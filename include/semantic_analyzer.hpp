@@ -66,6 +66,7 @@ private:
     std::unordered_map<std::string, FunctionSig> functions_;
     std::unordered_map<std::string, ProtocolInfo> protocols_;
     std::unordered_map<std::string, std::vector<std::string>> type_constructors_;
+    std::unordered_map<std::string, TypeInfo> analyzed_types_;
 
     void pass1_register_types(Program& program);
     void pass2_register_functions(Program& program);
