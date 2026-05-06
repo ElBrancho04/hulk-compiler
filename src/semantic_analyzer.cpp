@@ -14,9 +14,31 @@ std::string normalize_parent(const std::string& parent) {
 } // namespace
 
 void SemanticAnalyzer::analyze(Program& program) {
+    register_builtins();
     pass1_register_types(program);
     pass2_register_functions(program);
     pass3_type_check(program);
+}
+
+SemanticAnalyzer::SemanticAnalyzer() {
+    register_builtins();
+}
+
+void SemanticAnalyzer::register_builtins() {
+    if (!functions_.empty()) {
+        return;
+    }
+
+    functions_.emplace("print", FunctionSig{{kObjectType}, kObjectType});
+    functions_.emplace("sqrt", FunctionSig{{kNumberType}, kNumberType});
+    functions_.emplace("sin", FunctionSig{{kNumberType}, kNumberType});
+    functions_.emplace("cos", FunctionSig{{kNumberType}, kNumberType});
+    functions_.emplace("exp", FunctionSig{{kNumberType}, kNumberType});
+    functions_.emplace("log", FunctionSig{{kNumberType, kNumberType}, kNumberType});
+    functions_.emplace("rand", FunctionSig{{}, kNumberType});
+
+    type_table_.ensure_iterable_type(kNumberType);
+    functions_.emplace("range", FunctionSig{{kNumberType, kNumberType}, TypeTable::make_iterable_type(kNumberType)});
 }
 
 void SemanticAnalyzer::pass1_register_types(Program& program) {
@@ -38,6 +60,13 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
         std::unordered_set<std::string> method_names;
         std::unordered_map<std::string, std::string> attrs;
         std::unordered_map<std::string, MethodSig> methods;
+
+        std::vector<std::string> ctor_params;
+        ctor_params.reserve(type_def->type_params.size());
+        for (const auto& param : type_def->type_params) {
+            ctor_params.push_back(param.type_annotation.empty() ? kObjectType : param.type_annotation);
+        }
+        type_constructors_[name] = std::move(ctor_params);
 
         for (const auto& attr : type_def->attributes) {
             if (!attr) {
@@ -110,7 +139,7 @@ void SemanticAnalyzer::pass2_register_functions(Program& program) {
         std::vector<std::string> param_types;
         param_types.reserve(func_def->params.size());
         for (const auto& param : func_def->params) {
-            param_types.push_back(param.type_annotation);
+            param_types.push_back(param.type_annotation.empty() ? kObjectType : param.type_annotation);
         }
         functions_.emplace(func_def->name, FunctionSig{std::move(param_types), func_def->return_type});
     }
@@ -247,6 +276,50 @@ void SemanticAnalyzer::ensure_equals_or_conforms(const std::string& left,
     throw SemanticError(line, "tipos incompatibles en " + context + ": " + left + " y " + right);
 }
 
+std::string SemanticAnalyzer::resolve_attribute_type(const std::string& type_name,
+                                                     const std::string& attribute,
+                                                     int line) const {
+    if (!type_table_.has_type(type_name)) {
+        throw SemanticError(line, "tipo no definido para acceso de atributo: " + type_name);
+    }
+
+    const TypeInfo* current = &type_table_.get_type(type_name);
+    while (current) {
+        auto it = current->attributes.find(attribute);
+        if (it != current->attributes.end()) {
+            return it->second.empty() ? kObjectType : it->second;
+        }
+        if (current->parent.empty() || !type_table_.has_type(current->parent)) {
+            break;
+        }
+        current = &type_table_.get_type(current->parent);
+    }
+
+    throw SemanticError(line, "atributo no definido: " + attribute + " en " + type_name);
+}
+
+MethodSig SemanticAnalyzer::resolve_method_sig(const std::string& type_name,
+                                               const std::string& method,
+                                               int line) const {
+    if (!type_table_.has_type(type_name)) {
+        throw SemanticError(line, "tipo no definido para llamada de método: " + type_name);
+    }
+
+    const TypeInfo* current = &type_table_.get_type(type_name);
+    while (current) {
+        auto it = current->methods.find(method);
+        if (it != current->methods.end()) {
+            return it->second;
+        }
+        if (current->parent.empty() || !type_table_.has_type(current->parent)) {
+            break;
+        }
+        current = &type_table_.get_type(current->parent);
+    }
+
+    throw SemanticError(line, "método no definido: " + method + " en " + type_name);
+}
+
 std::string SemanticAnalyzer::visit(NumberLiteral& node) {
     (void)node;
     return kNumberType;
@@ -354,38 +427,75 @@ std::string SemanticAnalyzer::visit(LetExpr& node) {
 }
 
 std::string SemanticAnalyzer::visit(IfExpr& node) {
+    std::string result_type = kObjectType;
+    bool initialized = false;
+
     for (auto& branch : node.branches) {
-        analyze_expr(branch.condition.get());
-        analyze_expr(branch.body.get());
+        const std::string cond_type = analyze_expr(branch.condition.get());
+        ensure_conforms(cond_type, kBooleanType, node.line, "condición if");
+        const std::string body_type = analyze_expr(branch.body.get());
+        if (!initialized) {
+            result_type = body_type;
+            initialized = true;
+        } else {
+            result_type = type_table_.lowest_common_ancestor(result_type, body_type);
+        }
     }
-    analyze_expr(node.else_body.get());
-    return kObjectType;
+
+    const std::string else_type = analyze_expr(node.else_body.get());
+    if (!initialized) {
+        result_type = else_type;
+    } else {
+        result_type = type_table_.lowest_common_ancestor(result_type, else_type);
+    }
+
+    return result_type.empty() ? kObjectType : result_type;
 }
 
 std::string SemanticAnalyzer::visit(WhileExpr& node) {
-    analyze_expr(node.condition.get());
-    analyze_expr(node.body.get());
-    return kObjectType;
+    const std::string cond_type = analyze_expr(node.condition.get());
+    ensure_conforms(cond_type, kBooleanType, node.line, "condición while");
+    const std::string body_type = analyze_expr(node.body.get());
+    return body_type.empty() ? kObjectType : body_type;
 }
 
 std::string SemanticAnalyzer::visit(ForExpr& node) {
-    analyze_expr(node.iterable.get());
+    const std::string iterable_type = analyze_expr(node.iterable.get());
+
+    std::string element_type;
+    if (TypeTable::is_iterable_type(iterable_type, &element_type)) {
+        // ok
+    } else if (TypeTable::is_vector_type(iterable_type, &element_type)) {
+        // treat vector as iterable
+    } else {
+        throw SemanticError(node.line, "el for espera un iterable, se obtuvo: " + iterable_type);
+    }
+
     symbols_.enter_scope();
-    symbols_.define(node.variable_name, kObjectType, node.line);
-    analyze_expr(node.body.get());
+    symbols_.define(node.variable_name, element_type.empty() ? kObjectType : element_type, node.line);
+    const std::string body_type = analyze_expr(node.body.get());
     symbols_.exit_scope();
-    return kObjectType;
+    return body_type.empty() ? kObjectType : body_type;
 }
 
 std::string SemanticAnalyzer::visit(FuncCall& node) {
-    for (auto& arg : node.args) {
-        analyze_expr(arg.get());
-    }
     auto it = functions_.find(node.name);
-    if (it != functions_.end()) {
-        return it->second.return_type.empty() ? kObjectType : it->second.return_type;
+    if (it == functions_.end()) {
+        throw SemanticError(node.line, "función no definida: " + node.name);
     }
-    return kObjectType;
+
+    const auto& sig = it->second;
+    if (sig.param_types.size() != node.args.size()) {
+        throw SemanticError(node.line, "aridad incorrecta en llamada a " + node.name);
+    }
+
+    for (std::size_t i = 0; i < node.args.size(); ++i) {
+        const std::string arg_type = analyze_expr(node.args[i].get());
+        const std::string param_type = sig.param_types[i].empty() ? kObjectType : sig.param_types[i];
+        ensure_conforms(arg_type, param_type, node.line, "argumento de función");
+    }
+
+    return sig.return_type.empty() ? kObjectType : sig.return_type;
 }
 
 std::string SemanticAnalyzer::visit(FuncDef& node) {
@@ -394,7 +504,19 @@ std::string SemanticAnalyzer::visit(FuncDef& node) {
     for (const auto& param : node.params) {
         symbols_.define(param.name, param.type_annotation.empty() ? kObjectType : param.type_annotation, node.line);
     }
-    analyze_expr(node.body.get());
+    const std::string body_type = analyze_expr(node.body.get());
+    std::string result_type = body_type.empty() ? kObjectType : body_type;
+
+    if (!node.return_type.empty()) {
+        ensure_conforms(result_type, node.return_type, node.line, "retorno de función");
+        result_type = node.return_type;
+    }
+
+    auto it = functions_.find(node.name);
+    if (it != functions_.end()) {
+        it->second.return_type = result_type;
+    }
+
     symbols_.exit_scope();
     context_.exit_function();
     return kObjectType;
@@ -439,44 +561,100 @@ std::string SemanticAnalyzer::visit(ProtocolMethodSig& node) {
 }
 
 std::string SemanticAnalyzer::visit(NewExpr& node) {
-    for (auto& arg : node.args) {
-        analyze_expr(arg.get());
+    if (node.type_name.empty() || !type_table_.has_type(node.type_name)) {
+        throw SemanticError(node.line, "tipo no definido en new: " + node.type_name);
     }
-    return node.type_name.empty() ? kObjectType : node.type_name;
+
+    auto ctor_it = type_constructors_.find(node.type_name);
+    const std::vector<std::string> empty_ctor;
+    const auto& ctor_params = ctor_it != type_constructors_.end() ? ctor_it->second : empty_ctor;
+
+    if (ctor_params.size() != node.args.size()) {
+        throw SemanticError(node.line, "aridad incorrecta en constructor de " + node.type_name);
+    }
+
+    for (std::size_t i = 0; i < node.args.size(); ++i) {
+        const std::string arg_type = analyze_expr(node.args[i].get());
+        const std::string param_type = ctor_params[i].empty() ? kObjectType : ctor_params[i];
+        ensure_conforms(arg_type, param_type, node.line, "argumento de constructor");
+    }
+
+    return node.type_name;
 }
 
 std::string SemanticAnalyzer::visit(MemberAccess& node) {
-    analyze_expr(node.object.get());
-    return kObjectType;
+    const std::string object_type = analyze_expr(node.object.get());
+    return resolve_attribute_type(object_type, node.member_name, node.line);
 }
 
 std::string SemanticAnalyzer::visit(MethodCall& node) {
-    analyze_expr(node.object.get());
-    for (auto& arg : node.args) {
-        analyze_expr(arg.get());
+    const std::string object_type = analyze_expr(node.object.get());
+    MethodSig sig = resolve_method_sig(object_type, node.method_name, node.line);
+
+    if (sig.param_types.size() != node.args.size()) {
+        throw SemanticError(node.line, "aridad incorrecta en llamada a método " + node.method_name);
     }
-    return kObjectType;
+
+    for (std::size_t i = 0; i < node.args.size(); ++i) {
+        const std::string arg_type = analyze_expr(node.args[i].get());
+        const std::string param_type = sig.param_types[i].empty() ? kObjectType : sig.param_types[i];
+        ensure_conforms(arg_type, param_type, node.line, "argumento de método");
+    }
+
+    return sig.return_type.empty() ? kObjectType : sig.return_type;
 }
 
 std::string SemanticAnalyzer::visit(SelfRef& node) {
-    (void)node;
+    if (!context_.in_method) {
+        throw SemanticError(node.line, "self solo es válido dentro de métodos");
+    }
     return context_.current_type.empty() ? kObjectType : context_.current_type;
 }
 
 std::string SemanticAnalyzer::visit(BaseCall& node) {
-    for (auto& arg : node.args) {
-        analyze_expr(arg.get());
+    if (!context_.in_method || context_.current_type.empty()) {
+        throw SemanticError(node.line, "base() solo es válido dentro de métodos");
     }
-    return kObjectType;
+
+    const TypeInfo& current_type = type_table_.get_type(context_.current_type);
+    if (current_type.parent.empty()) {
+        throw SemanticError(node.line, "el tipo " + context_.current_type + " no tiene padre para base()");
+    }
+
+    MethodSig sig = resolve_method_sig(current_type.parent, context_.current_function, node.line);
+
+    if (sig.param_types.size() != node.args.size()) {
+        throw SemanticError(node.line, "aridad incorrecta en llamada base() de " + context_.current_function);
+    }
+
+    for (std::size_t i = 0; i < node.args.size(); ++i) {
+        const std::string arg_type = analyze_expr(node.args[i].get());
+        const std::string param_type = sig.param_types[i].empty() ? kObjectType : sig.param_types[i];
+        ensure_conforms(arg_type, param_type, node.line, "argumento de base()");
+    }
+
+    return sig.return_type.empty() ? kObjectType : sig.return_type;
 }
 
 std::string SemanticAnalyzer::visit(IsExpr& node) {
     analyze_expr(node.expression.get());
+    if (!type_table_.has_type(node.type_name)) {
+        throw SemanticError(node.line, "tipo no definido en is: " + node.type_name);
+    }
     return kBooleanType;
 }
 
 std::string SemanticAnalyzer::visit(AsExpr& node) {
-    analyze_expr(node.expression.get());
+    const std::string expr_type = analyze_expr(node.expression.get());
+    if (!type_table_.has_type(node.type_name)) {
+        throw SemanticError(node.line, "tipo no definido en as: " + node.type_name);
+    }
+
+    if (!type_table_.conforms_to(expr_type, node.type_name) &&
+        !type_table_.conforms_to(node.type_name, expr_type)) {
+        throw SemanticError(node.line, "as inválido entre " + expr_type + " y " + node.type_name);
+    }
+
     return node.type_name.empty() ? kObjectType : node.type_name;
 }
 

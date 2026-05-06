@@ -24,7 +24,7 @@ struct ProtocolInfo {
 
 class SemanticAnalyzer : public Visitor<std::string> {
 public:
-    SemanticAnalyzer() = default;
+    SemanticAnalyzer();
 
     void analyze(Program& program);
 
@@ -65,11 +65,15 @@ private:
     SemanticContext context_;
     std::unordered_map<std::string, FunctionSig> functions_;
     std::unordered_map<std::string, ProtocolInfo> protocols_;
+    std::unordered_map<std::string, std::vector<std::string>> type_constructors_;
 
     void pass1_register_types(Program& program);
     void pass2_register_functions(Program& program);
     void pass3_type_check(Program& program);
     std::string analyze_expr(Expr* expr);
+    void register_builtins();
+    std::string resolve_attribute_type(const std::string& type_name, const std::string& attribute, int line) const;
+    MethodSig resolve_method_sig(const std::string& type_name, const std::string& method, int line) const;
     void ensure_conforms(const std::string& actual,
                          const std::string& expected,
                          int line,
