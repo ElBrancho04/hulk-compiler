@@ -23,6 +23,7 @@ ADD_FLEX_BISON_DEPENDENCY(MyLexer MyParser)
 add_executable(hulk
     src/main.cpp
     src/code_generator.cpp
+    src/semantic_analyzer.cpp
     src/vm.cpp
     src/type_table.cpp
     ${FLEX_MyLexer_OUTPUTS}
@@ -54,4 +55,10 @@ add_executable(type_table_smoke_test
 
 add_executable(semantic_utils_smoke_test
     tests/semantic_utils_smoke_test.cpp
+)
+
+add_executable(semantic_analyzer_smoke_test
+    tests/semantic_analyzer_smoke_test.cpp
+    src/semantic_analyzer.cpp
+    src/type_table.cpp
 )
