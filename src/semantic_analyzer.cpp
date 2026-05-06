@@ -150,6 +150,9 @@ void SemanticAnalyzer::pass3_type_check(Program& program) {
     context_ = SemanticContext();
     analyzed_types_.clear();
 
+    symbols_.define("PI", kNumberType, 0);
+    symbols_.define("E", kNumberType, 0);
+
     for (const auto& type_def : program.types) {
         if (type_def) {
             visit(*type_def);
