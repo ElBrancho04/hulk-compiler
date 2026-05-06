@@ -219,6 +219,34 @@ void SemanticAnalyzer::validate_no_duplicates(const std::vector<Parameter>& para
     }
 }
 
+void SemanticAnalyzer::ensure_conforms(const std::string& actual,
+                                       const std::string& expected,
+                                       int line,
+                                       const std::string& context) {
+    if (actual.empty() || expected.empty()) {
+        return;
+    }
+    if (!type_table_.conforms_to(actual, expected)) {
+        throw SemanticError(line, "tipo incompatible en " + context + ": se esperaba " + expected + ", se obtuvo " + actual);
+    }
+}
+
+void SemanticAnalyzer::ensure_equals_or_conforms(const std::string& left,
+                                                 const std::string& right,
+                                                 int line,
+                                                 const std::string& context) {
+    if (left.empty() || right.empty()) {
+        return;
+    }
+    if (left == right) {
+        return;
+    }
+    if (type_table_.conforms_to(left, right) || type_table_.conforms_to(right, left)) {
+        return;
+    }
+    throw SemanticError(line, "tipos incompatibles en " + context + ": " + left + " y " + right);
+}
+
 std::string SemanticAnalyzer::visit(NumberLiteral& node) {
     (void)node;
     return kNumberType;
@@ -235,13 +263,53 @@ std::string SemanticAnalyzer::visit(BoolLiteral& node) {
 }
 
 std::string SemanticAnalyzer::visit(BinaryExpr& node) {
-    analyze_expr(node.left.get());
-    analyze_expr(node.right.get());
+    const std::string left_type = analyze_expr(node.left.get());
+    const std::string right_type = analyze_expr(node.right.get());
+
+    if (node.op == "+" || node.op == "-" || node.op == "*" || node.op == "/" || node.op == "^") {
+        ensure_conforms(left_type, kNumberType, node.line, "operador aritmético");
+        ensure_conforms(right_type, kNumberType, node.line, "operador aritmético");
+        return kNumberType;
+    }
+
+    if (node.op == "&" || node.op == "|") {
+        ensure_conforms(left_type, kBooleanType, node.line, "operador booleano");
+        ensure_conforms(right_type, kBooleanType, node.line, "operador booleano");
+        return kBooleanType;
+    }
+
+    if (node.op == "<" || node.op == ">" || node.op == "<=" || node.op == ">=") {
+        ensure_conforms(left_type, kNumberType, node.line, "comparación numérica");
+        ensure_conforms(right_type, kNumberType, node.line, "comparación numérica");
+        return kBooleanType;
+    }
+
+    if (node.op == "==" || node.op == "!=") {
+        ensure_equals_or_conforms(left_type, right_type, node.line, "comparación de igualdad");
+        return kBooleanType;
+    }
+
+    if (node.op == "@" || node.op == "@@") {
+        ensure_conforms(left_type, kStringType, node.line, "concatenación");
+        ensure_conforms(right_type, kStringType, node.line, "concatenación");
+        return kStringType;
+    }
+
     return kObjectType;
 }
 
 std::string SemanticAnalyzer::visit(UnaryExpr& node) {
-    analyze_expr(node.operand.get());
+    const std::string operand_type = analyze_expr(node.operand.get());
+
+    if (node.op == "-") {
+        ensure_conforms(operand_type, kNumberType, node.line, "negación aritmética");
+        return kNumberType;
+    }
+    if (node.op == "!") {
+        ensure_conforms(operand_type, kBooleanType, node.line, "negación lógica");
+        return kBooleanType;
+    }
+
     return kObjectType;
 }
 
@@ -258,14 +326,21 @@ std::string SemanticAnalyzer::visit(VarRef& node) {
 }
 
 std::string SemanticAnalyzer::visit(AssignExpr& node) {
-    analyze_expr(node.value.get());
-    return symbols_.lookup(node.name, node.line);
+    const std::string var_type = symbols_.lookup(node.name, node.line);
+    const std::string value_type = analyze_expr(node.value.get());
+    ensure_conforms(value_type, var_type, node.line, "asignación");
+    return var_type;
 }
 
 std::string SemanticAnalyzer::visit(LetBinding& node) {
-    analyze_expr(node.initializer.get());
-    symbols_.define(node.name, node.type_annotation.empty() ? kObjectType : node.type_annotation, 0);
-    return symbols_.lookup(node.name, 0);
+    const std::string init_type = analyze_expr(node.initializer.get());
+    std::string final_type = init_type;
+    if (!node.type_annotation.empty()) {
+        ensure_conforms(init_type, node.type_annotation, 0, "binding let");
+        final_type = node.type_annotation;
+    }
+    symbols_.define(node.name, final_type, 0);
+    return final_type;
 }
 
 std::string SemanticAnalyzer::visit(LetExpr& node) {
@@ -273,8 +348,7 @@ std::string SemanticAnalyzer::visit(LetExpr& node) {
     for (auto& binding : node.bindings) {
         visit(binding);
     }
-    std::string result = kObjectType;
-    result = analyze_expr(node.body.get());
+    std::string result = analyze_expr(node.body.get());
     symbols_.exit_scope();
     return result;
 }

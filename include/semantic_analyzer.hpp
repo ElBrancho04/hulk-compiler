@@ -70,6 +70,14 @@ private:
     void pass2_register_functions(Program& program);
     void pass3_type_check(Program& program);
     std::string analyze_expr(Expr* expr);
+    void ensure_conforms(const std::string& actual,
+                         const std::string& expected,
+                         int line,
+                         const std::string& context);
+    void ensure_equals_or_conforms(const std::string& left,
+                                   const std::string& right,
+                                   int line,
+                                   const std::string& context);
 
     void register_protocols(const std::vector<std::unique_ptr<ProtocolDef>>& protocols);
     static void validate_no_cycles(const std::unordered_map<std::string, std::string>& parents);
