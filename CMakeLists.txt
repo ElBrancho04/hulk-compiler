@@ -51,3 +51,7 @@ add_executable(type_table_smoke_test
     tests/type_table_smoke_test.cpp
     src/type_table.cpp
 )
+
+add_executable(semantic_utils_smoke_test
+    tests/semantic_utils_smoke_test.cpp
+)
