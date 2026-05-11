@@ -1,5 +1,7 @@
 #include "semantic_analyzer.hpp"
 
+#include "semantic_utils.hpp"
+
 #include <unordered_set>
 
 namespace {
@@ -45,6 +47,7 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
     std::unordered_map<std::string, std::string> parents;
     std::unordered_map<std::string, TypeInfo> pending;
     std::unordered_set<std::string> seen_types;
+    std::unordered_map<std::string, int> type_lines;
 
     for (const auto& type_def : program.types) {
         if (!type_def) {
@@ -55,6 +58,7 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
             throw SemanticError(type_def->line, "tipo duplicado: " + name);
         }
         seen_types.insert(name);
+        type_lines[name] = type_def->line;
 
         std::unordered_set<std::string> attr_names;
         std::unordered_set<std::string> method_names;
@@ -64,7 +68,9 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
         std::vector<std::string> ctor_params;
         ctor_params.reserve(type_def->type_params.size());
         for (const auto& param : type_def->type_params) {
-            ctor_params.push_back(param.type_annotation.empty() ? kObjectType : param.type_annotation);
+            require_annotation(param.type_annotation, type_def->line,
+                              "parámetro de constructor en tipo " + name + ": " + param.name);
+            ctor_params.push_back(param.type_annotation);
         }
         type_constructors_[name] = std::move(ctor_params);
 
@@ -92,6 +98,8 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
             std::vector<std::string> param_types;
             param_types.reserve(method->params.size());
             for (const auto& param : method->params) {
+                require_annotation(param.type_annotation, method->line,
+                                  "parámetro de método " + method->name + ": " + param.name);
                 param_types.push_back(param.type_annotation);
             }
             methods.emplace(method->name, MethodSig{std::move(param_types), method->return_type});
@@ -103,7 +111,7 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
     }
 
     register_protocols(program.protocols);
-    validate_no_cycles(parents);
+    validate_no_cycles(parents, type_lines);
 
     bool progress = true;
     while (!pending.empty() && progress) {
@@ -122,7 +130,8 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
 
     if (!pending.empty()) {
         const auto& first = pending.begin()->second;
-        throw SemanticError(0, "tipo padre inexistente o ciclo detectado: " + first.parent);
+        const int line = type_lines.count(first.name) > 0 ? type_lines[first.name] : 0;
+        throw SemanticError(line, "tipo padre inexistente o ciclo detectado: " + first.parent);
     }
 }
 
@@ -139,7 +148,9 @@ void SemanticAnalyzer::pass2_register_functions(Program& program) {
         std::vector<std::string> param_types;
         param_types.reserve(func_def->params.size());
         for (const auto& param : func_def->params) {
-            param_types.push_back(param.type_annotation.empty() ? kObjectType : param.type_annotation);
+            require_annotation(param.type_annotation, func_def->line,
+                              "parámetro de función " + func_def->name + ": " + param.name);
+            param_types.push_back(param.type_annotation);
         }
         functions_.emplace(func_def->name, FunctionSig{std::move(param_types), func_def->return_type});
     }
@@ -197,6 +208,8 @@ void SemanticAnalyzer::register_protocols(const std::vector<std::unique_ptr<Prot
             std::vector<std::string> param_types;
             param_types.reserve(method->params.size());
             for (const auto& param : method->params) {
+                require_annotation(param.type_annotation, method->line,
+                                  "parámetro de protocolo " + method->name + ": " + param.name);
                 param_types.push_back(param.type_annotation);
             }
             info.methods.emplace(method->name, MethodSig{std::move(param_types), method->return_type});
@@ -206,7 +219,8 @@ void SemanticAnalyzer::register_protocols(const std::vector<std::unique_ptr<Prot
     }
 }
 
-void SemanticAnalyzer::validate_no_cycles(const std::unordered_map<std::string, std::string>& parents) {
+void SemanticAnalyzer::validate_no_cycles(const std::unordered_map<std::string, std::string>& parents,
+                                          const std::unordered_map<std::string, int>& lines) {
     enum class Mark { Unvisited, Visiting, Done };
     std::unordered_map<std::string, Mark> marks;
 
@@ -214,7 +228,8 @@ void SemanticAnalyzer::validate_no_cycles(const std::unordered_map<std::string, 
         auto mark_it = marks.find(name);
         if (mark_it != marks.end()) {
             if (mark_it->second == Mark::Visiting) {
-                throw SemanticError(0, "ciclo en herencia detectado en tipo: " + name);
+                const int line = lines.count(name) > 0 ? lines.at(name) : 0;
+                throw SemanticError(line, "ciclo en herencia detectado en tipo: " + name);
             }
             if (mark_it->second == Mark::Done) {
                 return;
@@ -226,7 +241,8 @@ void SemanticAnalyzer::validate_no_cycles(const std::unordered_map<std::string, 
         if (parent_it != parents.end()) {
             const std::string& parent = parent_it->second;
             if (parent != kObjectType && parents.count(parent) == 0) {
-                throw SemanticError(0, "tipo padre inexistente: " + parent);
+                const int line = lines.count(name) > 0 ? lines.at(name) : 0;
+                throw SemanticError(line, "tipo padre inexistente: " + parent);
             }
             if (parent != kObjectType) {
                 self(parent, self);
@@ -422,19 +438,22 @@ std::string SemanticAnalyzer::visit(VarRef& node) {
 
 std::string SemanticAnalyzer::visit(AssignExpr& node) {
     const std::string var_type = symbols_.lookup(node.name, node.line);
-    const std::string value_type = analyze_expr(node.value.get());
+    const std::string value_type = require_inferred_type(analyze_expr(node.value.get()), node.line, "asignación");
     ensure_conforms(value_type, var_type, node.line, "asignación");
     return var_type;
 }
 
 std::string SemanticAnalyzer::visit(LetBinding& node) {
-    const std::string init_type = analyze_expr(node.initializer.get());
+    const int binding_line = semantic_expr_line(node.initializer.get(), 0);
+    const std::string init_type = require_inferred_type(analyze_expr(node.initializer.get()),
+                                                       binding_line,
+                                                       "binding let " + node.name);
     std::string final_type = init_type;
     if (!node.type_annotation.empty()) {
-        ensure_conforms(init_type, node.type_annotation, 0, "binding let");
+        ensure_conforms(init_type, node.type_annotation, binding_line, "binding let " + node.name);
         final_type = node.type_annotation;
     }
-    symbols_.define(node.name, final_type, 0);
+    symbols_.define(node.name, final_type, binding_line);
     return final_type;
 }
 
@@ -524,9 +543,13 @@ std::string SemanticAnalyzer::visit(FuncDef& node) {
     context_.enter_function(node.name);
     symbols_.enter_scope();
     for (const auto& param : node.params) {
-        symbols_.define(param.name, param.type_annotation.empty() ? kObjectType : param.type_annotation, node.line);
+        require_annotation(param.type_annotation, node.line,
+                          "parámetro de función " + node.name + ": " + param.name);
+        symbols_.define(param.name, param.type_annotation, node.line);
     }
-    const std::string body_type = analyze_expr(node.body.get());
+    const std::string body_type = require_inferred_type(analyze_expr(node.body.get()),
+                                                       node.line,
+                                                       "cuerpo de función " + node.name);
     std::string result_type = body_type.empty() ? kObjectType : body_type;
 
     if (!node.return_type.empty()) {
@@ -554,7 +577,9 @@ std::string SemanticAnalyzer::visit(TypeDef& node) {
             continue;
         }
         symbols_.enter_scope();
-        const std::string init_type = analyze_expr(attr->initializer.get());
+        const std::string init_type = require_inferred_type(analyze_expr(attr->initializer.get()),
+                                                           attr->line,
+                                                           "atributo " + attr->name);
         symbols_.exit_scope();
 
         std::string final_type = init_type.empty() ? kObjectType : init_type;
@@ -577,12 +602,16 @@ std::string SemanticAnalyzer::visit(TypeDef& node) {
         std::vector<std::string> param_types;
         param_types.reserve(method->params.size());
         for (const auto& param : method->params) {
-            const std::string param_type = param.type_annotation.empty() ? kObjectType : param.type_annotation;
+            require_annotation(param.type_annotation, method->line,
+                              "parámetro de método " + method->name + ": " + param.name);
+            const std::string param_type = param.type_annotation;
             symbols_.define(param.name, param_type, method->line);
             param_types.push_back(param_type);
         }
 
-        const std::string body_type = analyze_expr(method->body.get());
+        const std::string body_type = require_inferred_type(analyze_expr(method->body.get()),
+                                                           method->line,
+                                                           "cuerpo de método " + method->name);
         std::string return_type = body_type.empty() ? kObjectType : body_type;
         if (!method->return_type.empty()) {
             ensure_conforms(return_type, method->return_type, method->line, "retorno de método " + method->name);

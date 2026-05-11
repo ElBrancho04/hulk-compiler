@@ -7,3 +7,4 @@ parser.cpp
 parser.hpp
 location.hh
 stack.hh
+.github/copilot-instructions.md

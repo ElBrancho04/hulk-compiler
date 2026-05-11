@@ -85,7 +85,8 @@ private:
                                    const std::string& context);
 
     void register_protocols(const std::vector<std::unique_ptr<ProtocolDef>>& protocols);
-    static void validate_no_cycles(const std::unordered_map<std::string, std::string>& parents);
+    static void validate_no_cycles(const std::unordered_map<std::string, std::string>& parents,
+                                   const std::unordered_map<std::string, int>& lines);
     static void validate_no_duplicates(const std::vector<Parameter>& params, int line, const std::string& owner);
 };
 
