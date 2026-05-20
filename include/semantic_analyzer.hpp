@@ -58,6 +58,7 @@ public:
     std::string visit(VectorComprehensionFilter& node) override;
     std::string visit(VectorIndex& node) override;
     std::string visit(Program& node) override;
+    std::string visit(LambdaExpr& node) override;
 
 private:
     TypeTable type_table_;
@@ -67,6 +68,8 @@ private:
     std::unordered_map<std::string, ProtocolInfo> protocols_;
     std::unordered_map<std::string, std::vector<std::string>> type_constructors_;
     std::unordered_map<std::string, TypeInfo> analyzed_types_;
+    int lambda_counter_ = 0;
+    Program* current_program_ = nullptr;
 
     void pass1_register_types(Program& program);
     void pass2_register_functions(Program& program);

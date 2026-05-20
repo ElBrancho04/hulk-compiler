@@ -237,12 +237,21 @@ void CodeGenerator::visit(ForExpr& node) {
     exitScope();
 }
 void CodeGenerator::visit(FuncCall& node) {
-    for (auto& arg : node.args) {
-        if (arg) {
-            arg->accept(*this);
+    if (node.is_functor) {
+        // Llamada a functor: f(x) → f.invoke(x)
+        // Stack esperado por METHOD_CALL: [objeto, arg1, ..., argN]
+        emitLoad(node.name);
+        for (auto& arg : node.args) {
+            if (arg) { arg->accept(*this); }
         }
+        emit(Instruction::MethodCall("invoke", static_cast<int>(node.args.size())));
+        return;
     }
 
+    // Llamada a función global normal
+    for (auto& arg : node.args) {
+        if (arg) { arg->accept(*this); }
+    }
     emit(Instruction::Call(node.name, static_cast<int>(node.args.size())));
 }
 
@@ -481,4 +490,15 @@ void CodeGenerator::visit(Program& node) {
     }
 
     emit(Instruction(OpCode::HALT));
+}
+
+void CodeGenerator::visit(LambdaExpr& node) {
+    // El TypeDef anónimo ya fue agregado a program.types durante el análisis semántico
+    // y se emitió antes de este punto (visit(Program) procesa tipos primero).
+    // Aquí solo instanciamos el tipo, pasando las variables capturadas como args.
+    for (const auto& var : node.captured_vars) {
+        emitLoad(var);
+    }
+    emit(Instruction::New(node.generated_type_name,
+                          static_cast<int>(node.captured_vars.size())));
 }

@@ -58,6 +58,7 @@ public:
     void visit(VectorComprehensionFilter& node) override;
     void visit(VectorIndex& node) override;
     void visit(Program& node) override;
+    void visit(LambdaExpr& node) override;
 
 private:
     BytecodeProgram& program_;

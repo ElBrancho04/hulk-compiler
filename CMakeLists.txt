@@ -64,3 +64,10 @@ add_executable(semantic_analyzer_smoke_test
     src/semantic_utils.cpp
     src/type_table.cpp
 )
+
+add_executable(lambda_smoke_test
+    tests/lambda_smoke_test.cpp
+    src/semantic_analyzer.cpp
+    src/semantic_utils.cpp
+    src/type_table.cpp
+)
