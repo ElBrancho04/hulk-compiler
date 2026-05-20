@@ -74,11 +74,17 @@ bool TypeTable::conforms_to(const std::string& derived, const std::string& targe
     std::string derived_element;
     std::string target_element;
 
-    if (is_vector_type(derived, &derived_element) && is_vector_type(target, &target_element)) {
-        return conforms_to(derived_element, target_element);
+    if (is_vector_type(derived, &derived_element)) {
+        if (is_vector_type(target, &target_element))   return conforms_to(derived_element, target_element);
+        if (is_iterable_type(target, &target_element)) return conforms_to(derived_element, target_element);
+        return false;
     }
-    if (is_iterable_type(derived, &derived_element) && is_iterable_type(target, &target_element)) {
-        return conforms_to(derived_element, target_element);
+    if (is_iterable_type(derived, &derived_element)) {
+        if (is_iterable_type(target, &target_element)) return conforms_to(derived_element, target_element);
+        return false;
+    }
+    if (is_vector_type(target) || is_iterable_type(target)) {
+        return false;
     }
 
     if (!has_type(derived) || !has_type(target)) {
@@ -111,6 +117,9 @@ std::string TypeTable::lowest_common_ancestor(const std::string& a, const std::s
     }
     if (is_iterable_type(a, &a_element) && is_iterable_type(b, &b_element)) {
         return make_iterable_type(lowest_common_ancestor(a_element, b_element));
+    }
+    if (is_vector_type(a) || is_iterable_type(a) || is_vector_type(b) || is_iterable_type(b)) {
+        return kObjectType;
     }
 
     if (!has_type(a) || !has_type(b)) {
