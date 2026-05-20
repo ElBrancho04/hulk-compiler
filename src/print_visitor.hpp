@@ -299,6 +299,22 @@ public:
         node.iterable->accept(*this);
         indent_level--;
     }
+
+    void visit(LambdaExpr& node) override {
+        nodeHeader("LambdaExpr");
+        indent_level++;
+        for (auto& p : node.params) {
+            printIndent();
+            std::cout << "Param: " << p.name
+                      << (p.type_annotation.empty() ? "" : " : " + p.type_annotation)
+                      << std::endl;
+        }
+        if (!node.return_type.empty()) {
+            printIndent(); std::cout << "ReturnType: " << node.return_type << std::endl;
+        }
+        if (node.body) node.body->accept(*this);
+        indent_level--;
+    }
 };
 
 #endif

@@ -13,9 +13,36 @@ constexpr const char* kBooleanType = "Boolean";
 std::string normalize_parent(const std::string& parent) {
     return parent.empty() ? std::string(kObjectType) : parent;
 }
+
+// Recorre el AST de expr y recolecta todos los nombres de VarRef encontrados.
+// Usado para detectar variables libres en lambdas.
+void collect_all_var_names(Expr* expr, std::unordered_set<std::string>& out) {
+    if (!expr) return;
+    if (auto* n = dynamic_cast<VarRef*>(expr))       { out.insert(n->name); return; }
+    if (auto* n = dynamic_cast<AssignExpr*>(expr))   { out.insert(n->name); collect_all_var_names(n->value.get(), out); return; }
+    if (auto* n = dynamic_cast<BinaryExpr*>(expr))   { collect_all_var_names(n->left.get(), out); collect_all_var_names(n->right.get(), out); return; }
+    if (auto* n = dynamic_cast<UnaryExpr*>(expr))    { collect_all_var_names(n->operand.get(), out); return; }
+    if (auto* n = dynamic_cast<BlockExpr*>(expr))    { for (auto& e : n->expressions) collect_all_var_names(e.get(), out); return; }
+    if (auto* n = dynamic_cast<LetExpr*>(expr))      { for (auto& b : n->bindings) collect_all_var_names(b.initializer.get(), out); collect_all_var_names(n->body.get(), out); return; }
+    if (auto* n = dynamic_cast<IfExpr*>(expr))       { for (auto& b : n->branches) { collect_all_var_names(b.condition.get(), out); collect_all_var_names(b.body.get(), out); } collect_all_var_names(n->else_body.get(), out); return; }
+    if (auto* n = dynamic_cast<WhileExpr*>(expr))    { collect_all_var_names(n->condition.get(), out); collect_all_var_names(n->body.get(), out); return; }
+    if (auto* n = dynamic_cast<ForExpr*>(expr))      { collect_all_var_names(n->iterable.get(), out); collect_all_var_names(n->body.get(), out); return; }
+    if (auto* n = dynamic_cast<FuncCall*>(expr))     { for (auto& a : n->args) collect_all_var_names(a.get(), out); return; }
+    if (auto* n = dynamic_cast<MethodCall*>(expr))   { collect_all_var_names(n->object.get(), out); for (auto& a : n->args) collect_all_var_names(a.get(), out); return; }
+    if (auto* n = dynamic_cast<MemberAccess*>(expr)) { collect_all_var_names(n->object.get(), out); return; }
+    if (auto* n = dynamic_cast<NewExpr*>(expr))      { for (auto& a : n->args) collect_all_var_names(a.get(), out); return; }
+    if (auto* n = dynamic_cast<IsExpr*>(expr))       { collect_all_var_names(n->expression.get(), out); return; }
+    if (auto* n = dynamic_cast<AsExpr*>(expr))       { collect_all_var_names(n->expression.get(), out); return; }
+    if (auto* n = dynamic_cast<VectorLiteral*>(expr))            { for (auto& e : n->elements) collect_all_var_names(e.get(), out); return; }
+    if (auto* n = dynamic_cast<VectorComprehension*>(expr))      { collect_all_var_names(n->iterable.get(), out); collect_all_var_names(n->generator.get(), out); return; }
+    if (auto* n = dynamic_cast<VectorComprehensionFilter*>(expr)) { collect_all_var_names(n->iterable.get(), out); collect_all_var_names(n->generator.get(), out); collect_all_var_names(n->filter.get(), out); return; }
+    if (auto* n = dynamic_cast<VectorIndex*>(expr))  { collect_all_var_names(n->vector.get(), out); collect_all_var_names(n->index.get(), out); return; }
+    // NumberLiteral, StringLiteral, BoolLiteral, SelfRef, BaseCall: sin VarRef
+}
 } // namespace
 
 void SemanticAnalyzer::analyze(Program& program) {
+    current_program_ = &program;
     register_builtins();
     pass1_register_types(program);
     pass2_register_functions(program);
@@ -540,23 +567,45 @@ std::string SemanticAnalyzer::visit(ForExpr& node) {
 }
 
 std::string SemanticAnalyzer::visit(FuncCall& node) {
+    // Caso 1: función global registrada
     auto it = functions_.find(node.name);
-    if (it == functions_.end()) {
-        throw SemanticError(node.line, "función no definida: " + node.name);
+    if (it != functions_.end()) {
+        const auto& sig = it->second;
+        if (sig.param_types.size() != node.args.size()) {
+            throw SemanticError(node.line, "aridad incorrecta en llamada a " + node.name);
+        }
+        for (std::size_t i = 0; i < node.args.size(); ++i) {
+            const std::string arg_type = analyze_expr(node.args[i].get());
+            const std::string param_type = sig.param_types[i].empty() ? kObjectType : sig.param_types[i];
+            ensure_conforms(arg_type, param_type, node.line, "argumento de función");
+        }
+        return sig.return_type.empty() ? kObjectType : sig.return_type;
     }
 
-    const auto& sig = it->second;
-    if (sig.param_types.size() != node.args.size()) {
-        throw SemanticError(node.line, "aridad incorrecta en llamada a " + node.name);
+    // Caso 2: variable en scope que puede ser un functor (tiene método invoke)
+    std::string functor_type;
+    if (symbols_.try_lookup(node.name, functor_type) && type_table_.has_type(functor_type)) {
+        MethodSig sig;
+        try {
+            sig = resolve_method_sig(functor_type, "invoke", node.line);
+        } catch (...) {
+            throw SemanticError(node.line,
+                "'" + node.name + "' (tipo " + functor_type + ") no es un functor: no tiene método invoke");
+        }
+
+        if (sig.param_types.size() != node.args.size()) {
+            throw SemanticError(node.line, "aridad incorrecta en llamada a functor " + node.name);
+        }
+        for (std::size_t i = 0; i < node.args.size(); ++i) {
+            const std::string arg_type = analyze_expr(node.args[i].get());
+            const std::string param_type = sig.param_types[i].empty() ? kObjectType : sig.param_types[i];
+            ensure_conforms(arg_type, param_type, node.line, "argumento de functor");
+        }
+        node.is_functor = true;
+        return sig.return_type.empty() ? kObjectType : sig.return_type;
     }
 
-    for (std::size_t i = 0; i < node.args.size(); ++i) {
-        const std::string arg_type = analyze_expr(node.args[i].get());
-        const std::string param_type = sig.param_types[i].empty() ? kObjectType : sig.param_types[i];
-        ensure_conforms(arg_type, param_type, node.line, "argumento de función");
-    }
-
-    return sig.return_type.empty() ? kObjectType : sig.return_type;
+    throw SemanticError(node.line, "función no definida: " + node.name);
 }
 
 std::string SemanticAnalyzer::visit(FuncDef& node) {
@@ -943,5 +992,123 @@ std::string SemanticAnalyzer::analyze_expr(Expr* expr) {
     if (auto* node = dynamic_cast<VectorIndex*>(expr)) {
         return visit(*node);
     }
+    if (auto* node = dynamic_cast<LambdaExpr*>(expr)) {
+        return visit(*node);
+    }
     return kObjectType;
+}
+
+std::string SemanticAnalyzer::visit(LambdaExpr& node) {
+    // === Paso 1: detectar variables libres (capturadas del entorno exterior) ===
+    std::unordered_set<std::string> param_names;
+    for (const auto& p : node.params) param_names.insert(p.name);
+
+    std::unordered_set<std::string> used_vars;
+    collect_all_var_names(node.body.get(), used_vars);
+
+    static const std::unordered_set<std::string> builtin_consts = {"PI", "E"};
+    std::vector<std::string> captured_vars;
+    std::vector<std::string> captured_types;
+    for (const auto& var : used_vars) {
+        if (param_names.count(var) || functions_.count(var) || builtin_consts.count(var)) continue;
+        std::string var_type;
+        if (symbols_.try_lookup(var, var_type)) {
+            captured_vars.push_back(var);
+            captured_types.push_back(var_type.empty() ? kObjectType : var_type);
+        }
+    }
+
+    // === Paso 2: generar nombre de tipo anónimo único ===
+    std::string type_name = "_Lambda_" + std::to_string(lambda_counter_++);
+
+    // === Paso 3: verificar tipos del cuerpo en un scope con los parámetros ===
+    symbols_.enter_scope();
+    for (const auto& p : node.params) {
+        const std::string pt = p.type_annotation.empty() ? kObjectType : p.type_annotation;
+        ensure_type_registered(pt, node.line);
+        symbols_.define(p.name, pt, node.line);
+    }
+    const std::string body_type = analyze_expr(node.body.get());
+    std::string invoke_return = body_type.empty() ? kObjectType : body_type;
+    if (!node.return_type.empty()) {
+        ensure_conforms(body_type, node.return_type, node.line, "cuerpo de lambda");
+        invoke_return = node.return_type;
+    }
+    symbols_.exit_scope();
+
+    // === Paso 4: construir parámetros del constructor y atributos para las capturas ===
+    std::vector<Parameter> ctor_params;
+    std::unordered_map<std::string, std::string> attr_type_map;
+    std::vector<std::unique_ptr<AttributeDef>> attrs;
+    std::vector<std::string> ctor_param_types;
+    for (std::size_t i = 0; i < captured_vars.size(); ++i) {
+        const std::string& var   = captured_vars[i];
+        const std::string& ctype = captured_types[i];
+        const std::string attr_name = "_" + var;
+        ctor_params.emplace_back(attr_name, ctype);
+        ctor_param_types.push_back(ctype);
+        attr_type_map[attr_name] = ctype;
+        // El atributo se inicializa con el parámetro de constructor homónimo
+        attrs.push_back(std::make_unique<AttributeDef>(
+            attr_name, ctype,
+            std::make_unique<VarRef>(attr_name, node.line),
+            node.line
+        ));
+    }
+
+    // === Paso 5: construir el cuerpo del método invoke ===
+    // Si hay capturas, envolvemos el cuerpo en:
+    //   let var = self._var, ... in original_body
+    // Así el cuerpo original no necesita modificarse (usa los mismos nombres).
+    std::unique_ptr<Expr> invoke_body;
+    if (captured_vars.empty()) {
+        invoke_body = std::move(node.body);
+    } else {
+        std::vector<LetBinding> rebind;
+        for (const auto& var : captured_vars) {
+            rebind.emplace_back(
+                var, "",
+                std::make_unique<MemberAccess>(
+                    std::make_unique<SelfRef>(node.line),
+                    "_" + var,
+                    node.line
+                )
+            );
+        }
+        invoke_body = std::make_unique<LetExpr>(std::move(rebind), std::move(node.body), node.line);
+    }
+
+    std::vector<std::string> invoke_param_types;
+    for (const auto& p : node.params)
+        invoke_param_types.push_back(p.type_annotation.empty() ? kObjectType : p.type_annotation);
+
+    std::vector<std::unique_ptr<MethodDef>> methods;
+    methods.push_back(std::make_unique<MethodDef>(
+        "invoke", node.params, invoke_return, std::move(invoke_body), node.line));
+
+    // === Paso 6: crear el TypeDef y registrarlo ===
+    auto type_def = std::make_unique<TypeDef>(
+        type_name, ctor_params, "",
+        std::vector<std::unique_ptr<Expr>>(),
+        std::move(attrs), std::move(methods),
+        node.line
+    );
+
+    std::unordered_map<std::string, MethodSig> method_sig_map;
+    method_sig_map["invoke"] = MethodSig{invoke_param_types, invoke_return};
+    TypeInfo type_info{type_name, kObjectType, std::move(attr_type_map), std::move(method_sig_map)};
+    type_table_.register_type(type_info);
+    analyzed_types_[type_name] = type_info;
+    type_constructors_[type_name] = ctor_param_types;
+
+    // Lo agregamos al programa: el CodeGenerator lo emitirá antes de la expresión global
+    if (current_program_) {
+        current_program_->types.push_back(std::move(type_def));
+    }
+
+    // === Paso 7: guardar info de transpilación en el nodo ===
+    node.generated_type_name = type_name;
+    node.captured_vars = captured_vars;
+
+    return type_name;
 }

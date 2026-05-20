@@ -41,6 +41,18 @@ public:
         throw SemanticError(line, "símbolo no definido: " + name);
     }
 
+    // Versión no lanzante de lookup: retorna false si el símbolo no existe.
+    bool try_lookup(const std::string& name, std::string& out_type) const {
+        for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+            auto found = it->find(name);
+            if (found != it->end()) {
+                out_type = found->second;
+                return true;
+            }
+        }
+        return false;
+    }
+
     void assign(const std::string& name, const std::string& type, int line) {
         for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
             auto found = it->find(name);

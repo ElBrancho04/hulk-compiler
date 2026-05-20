@@ -49,6 +49,8 @@ std::vector<std::unique_ptr<T>> to_unique_vec(std::vector<T*>* src) {
 }
 %}
 
+%glr-parser
+
 %union {
     double float_val;
     char* str_val;
@@ -356,6 +358,25 @@ primary_expr:
     | TOK_BASE '(' opt_expression_list ')' { $$ = new BaseCall(to_unique_vec($3), line_number); }
     | TOK_SELF { $$ = new SelfRef(line_number); }
     | '(' expression ')' { $$ = $2; }
+    | '(' ')' opt_return_type TOK_ARROW expression
+    {
+        $$ = new LambdaExpr(
+            std::vector<Parameter>(),
+            $3 ? $3 : "",
+            std::unique_ptr<Expr>($5),
+            line_number
+        );
+    }
+    | '(' params_list_not_empty ')' opt_return_type TOK_ARROW expression
+    {
+        $$ = new LambdaExpr(
+            *$2,
+            $4 ? $4 : "",
+            std::unique_ptr<Expr>($6),
+            line_number
+        );
+        delete $2;
+    }
     | block_expr { $$ = $1; }
     | '[' opt_vector_elements ']' { $$ = new VectorLiteral(to_unique_vec($2), line_number); }
     | '[' comp_expr '|' IDENTIFIER TOK_IN expression opt_vector_filter ']'

@@ -16,6 +16,7 @@ class NewExpr; class MemberAccess; class MethodCall;
 class SelfRef; class BaseCall; class IsExpr; class AsExpr;
 class VectorLiteral; class VectorComprehension; class VectorComprehensionFilter;
 class VectorIndex; class Program;
+class LambdaExpr;
 
 template <typename T>
 class Visitor {
@@ -50,6 +51,7 @@ public:
     virtual T visit(VectorComprehensionFilter& node) = 0;
     virtual T visit(VectorIndex& node) = 0;
     virtual T visit(Program& node) = 0;
+    virtual T visit(LambdaExpr& node) = 0;
     virtual ~Visitor() = default;
 };
 
@@ -179,6 +181,9 @@ class FuncCall : public Expr {
 public:
     std::string name;
     std::vector<std::unique_ptr<Expr>> args;
+    // Puesto a true por el SemanticAnalyzer cuando detecta que `name` es un functor
+    // (variable con método invoke) en lugar de una función global.
+    bool is_functor = false;
 
     FuncCall(std::string name, std::vector<std::unique_ptr<Expr>> args, int line)
         : Expr(line), name(std::move(name)), args(std::move(args)) {}
@@ -403,6 +408,27 @@ public:
 
     LetExpr(std::vector<LetBinding> b, std::unique_ptr<Expr> body, int line)
         : Expr(line), bindings(std::move(b)), body(std::move(body)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+// Una función anónima: (x: Number, y: Number): Number => x + y
+// Almacena params, tipo de retorno opcional, y la expresión cuerpo.
+// Durante el análisis semántico se transpila a un TypeDef anónimo + NewExpr.
+class LambdaExpr : public Expr {
+public:
+    std::vector<Parameter> params;
+    std::string return_type; // Opcional, "" si no está anotado
+    std::unique_ptr<Expr> body;
+
+    // Llenados por SemanticAnalyzer durante la transpilación
+    std::string generated_type_name;        // ej. "_Lambda_0"
+    std::vector<std::string> captured_vars; // nombres de variables del entorno capturadas
+
+    LambdaExpr(std::vector<Parameter> params, std::string return_type,
+               std::unique_ptr<Expr> body, int line)
+        : Expr(line), params(std::move(params)),
+          return_type(std::move(return_type)), body(std::move(body)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
