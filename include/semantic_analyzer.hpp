@@ -73,8 +73,9 @@ private:
     void pass3_type_check(Program& program);
     std::string analyze_expr(Expr* expr);
     void register_builtins();
-    std::string resolve_attribute_type(const std::string& type_name, const std::string& attribute, int line) const;
-    MethodSig resolve_method_sig(const std::string& type_name, const std::string& method, int line) const;
+    void ensure_type_registered(const std::string& type_name, int line);
+    std::string resolve_attribute_type(const std::string& type_name, const std::string& attribute, int line);
+    MethodSig resolve_method_sig(const std::string& type_name, const std::string& method, int line);
     void ensure_conforms(const std::string& actual,
                          const std::string& expected,
                          int line,

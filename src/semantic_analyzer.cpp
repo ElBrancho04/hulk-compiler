@@ -268,6 +268,22 @@ void SemanticAnalyzer::validate_no_duplicates(const std::vector<Parameter>& para
     }
 }
 
+void SemanticAnalyzer::ensure_type_registered(const std::string& type_name, int line) {
+    if (type_name.empty()) return;
+    std::string element;
+    if (TypeTable::is_iterable_type(type_name, &element)) {
+        if (!type_table_.has_type(element) && !TypeTable::is_vector_type(element) && !TypeTable::is_iterable_type(element)) {
+            throw SemanticError(line, "tipo elemento desconocido en Iterable: " + element);
+        }
+        type_table_.ensure_iterable_type(element);
+    } else if (TypeTable::is_vector_type(type_name, &element)) {
+        if (!type_table_.has_type(element) && !TypeTable::is_vector_type(element) && !TypeTable::is_iterable_type(element)) {
+            throw SemanticError(line, "tipo elemento desconocido en Vector: " + element);
+        }
+        type_table_.ensure_vector_type(element);
+    }
+}
+
 void SemanticAnalyzer::ensure_conforms(const std::string& actual,
                                        const std::string& expected,
                                        int line,
@@ -275,6 +291,8 @@ void SemanticAnalyzer::ensure_conforms(const std::string& actual,
     if (actual.empty() || expected.empty()) {
         return;
     }
+    ensure_type_registered(actual, line);
+    ensure_type_registered(expected, line);
     if (!type_table_.conforms_to(actual, expected)) {
         throw SemanticError(line, "tipo incompatible en " + context + ": se esperaba " + expected + ", se obtuvo " + actual);
     }
@@ -298,7 +316,8 @@ void SemanticAnalyzer::ensure_equals_or_conforms(const std::string& left,
 
 std::string SemanticAnalyzer::resolve_attribute_type(const std::string& type_name,
                                                      const std::string& attribute,
-                                                     int line) const {
+                                                     int line) {
+    ensure_type_registered(type_name, line);
     if (!type_table_.has_type(type_name)) {
         throw SemanticError(line, "tipo no definido para acceso de atributo: " + type_name);
     }
@@ -329,7 +348,8 @@ std::string SemanticAnalyzer::resolve_attribute_type(const std::string& type_nam
 
 MethodSig SemanticAnalyzer::resolve_method_sig(const std::string& type_name,
                                                const std::string& method,
-                                               int line) const {
+                                               int line) {
+    ensure_type_registered(type_name, line);
     if (!type_table_.has_type(type_name)) {
         throw SemanticError(line, "tipo no definido para llamada de método: " + type_name);
     }
@@ -545,6 +565,7 @@ std::string SemanticAnalyzer::visit(FuncDef& node) {
     for (const auto& param : node.params) {
         require_annotation(param.type_annotation, node.line,
                           "parámetro de función " + node.name + ": " + param.name);
+        ensure_type_registered(param.type_annotation, node.line);
         symbols_.define(param.name, param.type_annotation, node.line);
     }
     const std::string body_type = require_inferred_type(analyze_expr(node.body.get()),
@@ -604,6 +625,7 @@ std::string SemanticAnalyzer::visit(TypeDef& node) {
         for (const auto& param : method->params) {
             require_annotation(param.type_annotation, method->line,
                               "parámetro de método " + method->name + ": " + param.name);
+            ensure_type_registered(param.type_annotation, method->line);
             const std::string param_type = param.type_annotation;
             symbols_.define(param.name, param_type, method->line);
             param_types.push_back(param_type);

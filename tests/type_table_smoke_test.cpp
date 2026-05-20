@@ -44,6 +44,19 @@ int main() {
     assert(iter_info.methods.count("current") == 1);
     assert(iter_info.methods.at("current").return_type == "Number");
 
+    // Vector<T> conforma a Iterable<T>
+    assert(table.conforms_to(vec_number, iter_number));
+    assert(table.conforms_to(vec_object, iter_object));
+    // La covarianza funciona: Vector<Number> conforma a Iterable<Object>
+    assert(table.conforms_to(vec_number, iter_object));
+    // Pero no al revés
+    assert(!table.conforms_to(iter_number, vec_number));
+
+    // LCA mixto (contenedor vs tipo regular) debe ser Object
+    assert(table.lowest_common_ancestor(vec_number, "String") == "Object");
+    assert(table.lowest_common_ancestor(iter_number, "Number") == "Object");
+    assert(table.lowest_common_ancestor(vec_number, iter_number) == "Object");
+
     bool caught = false;
     try {
         table.register_type(TypeInfo{"Bad", "Number"});

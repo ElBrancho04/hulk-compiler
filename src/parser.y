@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <cstring>
 
 #include "ast.hpp"
 
@@ -92,7 +93,7 @@ std::vector<std::unique_ptr<T>> to_unique_vec(std::vector<T*>* src) {
 %type <func_ptr> function_definition
 %type <type_ptr> type_definition
 %type <protocol_ptr> protocol_definition
-%type <str_val> opt_type_annotation opt_return_type opt_extends
+%type <str_val> opt_type_annotation opt_return_type opt_extends type_expr
 %type <expr_list> expression_list opt_expression_list opt_type_args block_expression_list
 %type <expr_list> vector_elements opt_vector_elements
 %type <param_list> params_list params_list_not_empty opt_type_params
@@ -199,7 +200,7 @@ opt_type_params:
 
 opt_return_type:
     /* vacío */ { $$ = nullptr; }
-    | TOK_TYPE_ARROW IDENTIFIER { $$ = $2; }
+    | TOK_TYPE_ARROW type_expr { $$ = $2; }
     ;
 
 opt_inherits:
@@ -402,9 +403,30 @@ vector_elements:
     | vector_elements ',' comp_expr { $1->push_back($3); $$ = $1; }
     ;
 
+type_expr:
+    IDENTIFIER
+    { $$ = $1; }
+    | IDENTIFIER '*'
+    {
+        size_t len = strlen($1) + 12;
+        char* buf = (char*)malloc(len);
+        sprintf(buf, "Iterable<%s>", $1);
+        free($1);
+        $$ = buf;
+    }
+    | IDENTIFIER '[' ']'
+    {
+        size_t len = strlen($1) + 10;
+        char* buf = (char*)malloc(len);
+        sprintf(buf, "Vector<%s>", $1);
+        free($1);
+        $$ = buf;
+    }
+    ;
+
 opt_type_annotation:
     /* vacío */ { $$ = nullptr; }
-    | ':' IDENTIFIER { $$ = $2; }
+    | ':' type_expr { $$ = $2; }
     ;
 
 let_bindings:
