@@ -19,16 +19,24 @@ BISON_TARGET(MyParser src/parser.y ${CMAKE_CURRENT_BINARY_DIR}/parser.cpp)
 
 ADD_FLEX_BISON_DEPENDENCY(MyLexer MyParser)
 
-# Ejecutable principal
+# Ejecutable principal (compiler)
 add_executable(hulk
     src/main.cpp
     src/code_generator.cpp
     src/semantic_analyzer.cpp
     src/semantic_utils.cpp
+    src/serialize.cpp
     src/vm.cpp
     src/type_table.cpp
     ${FLEX_MyLexer_OUTPUTS}
     ${BISON_MyParser_OUTPUTS}
+)
+
+# Ejecutable standalone de la VM (hulk-vm)
+add_executable(hulk-vm
+    src/vm_main.cpp
+    src/serialize.cpp
+    src/vm.cpp
 )
 
 add_executable(runtime_test
