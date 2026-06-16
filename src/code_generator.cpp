@@ -420,16 +420,21 @@ void CodeGenerator::visit(BaseCall& node) {
     }
 
     std::string target;
-    if (!current_method_.empty()) {
-        // Resolve the parent type for the current type
-        auto it = parent_map_.find(current_type_name_);
-        std::string parent_type;
-        if (it != parent_map_.end() && !it->second.empty()) {
-            parent_type = it->second;
+    if (!current_method_.empty() && !current_type_name_.empty()) {
+        // Walk the ancestor chain to find the closest ancestor that implements this method.
+        auto anc_it = program_.type_ancestors.find(current_type_name_);
+        if (anc_it != program_.type_ancestors.end()) {
+            target = "Object." + current_method_;  // fallback if no ancestor defines it
+            for (const auto& ancestor : anc_it->second) {
+                std::string candidate = ancestor + "." + current_method_;
+                if (program_.function_table.find(candidate) != program_.function_table.end()) {
+                    target = candidate;
+                    break;
+                }
+            }
         } else {
-            parent_type = "Object";
+            target = "Object." + current_method_;
         }
-        target = parent_type + "." + current_method_;
     } else {
         target = "base";
     }
