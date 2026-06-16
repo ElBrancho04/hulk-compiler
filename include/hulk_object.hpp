@@ -3,18 +3,20 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "value.hpp"
 
 class HulkObject {
 public:
     std::string type_name;
+    std::vector<std::string> ancestors;
     std::unordered_map<std::string, Value> attributes;
 
     virtual ~HulkObject() = default;
 
-    explicit HulkObject(std::string type_name)
-        : type_name(std::move(type_name)) {}
+    explicit HulkObject(std::string type_name, std::vector<std::string> ancestors = {})
+        : type_name(std::move(type_name)), ancestors(std::move(ancestors)) {}
 
     bool hasAttribute(const std::string& name) const {
         return attributes.find(name) != attributes.end();

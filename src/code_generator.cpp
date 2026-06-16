@@ -276,6 +276,68 @@ void CodeGenerator::visit(FuncDef& node) {
     current_method_ = previous_method;
 }
 void CodeGenerator::visit(TypeDef& node) {
+    std::string previous_type = current_type_name_;
+    current_type_name_ = node.name;
+
+    // Generate __init__ method that initializes attributes and calls parent constructor
+    {
+        std::string init_symbol = node.name + ".__init__";
+        std::size_t start_index = program_.code.size();
+        program_.addFunctionSymbol(init_symbol, start_index);
+        emit(Instruction::Label(static_cast<int>(start_index)));
+
+        enterScope();
+        // Store constructor params in local scope
+        for (const auto& param : node.type_params) {
+            emitStore(param.name);
+        }
+
+        // Call parent's __init__ if there is inheritance
+        if (!node.parent_name.empty()) {
+            emit(Instruction(OpCode::SELF));
+            for (auto& parent_arg : node.parent_args) {
+                if (parent_arg) {
+                    parent_arg->accept(*this);
+                }
+            }
+            emit(Instruction::MethodCall("__init__", static_cast<int>(node.parent_args.size())));
+            emit(Instruction(OpCode::POP));
+        }
+
+        // Assign constructor args to attributes via SET_ATTR
+        for (const auto& param : node.type_params) {
+            emit(Instruction(OpCode::SELF));
+            emitLoad(param.name);
+            emit(Instruction::SetAttr(param.name));
+            emit(Instruction(OpCode::POP));
+        }
+
+        // Evaluate attribute initializers for attributes without matching constructor params
+        for (const auto& attr : node.attributes) {
+            if (attr && attr->initializer) {
+                bool is_constructor_param = false;
+                for (const auto& param : node.type_params) {
+                    if (param.name == attr->name) {
+                        is_constructor_param = true;
+                        break;
+                    }
+                }
+                if (!is_constructor_param) {
+                    emit(Instruction(OpCode::SELF));
+                    attr->initializer->accept(*this);
+                    emit(Instruction::SetAttr(attr->name));
+                    emit(Instruction(OpCode::POP));
+                }
+            }
+        }
+
+        // Return self
+        emit(Instruction(OpCode::SELF));
+        emit(Instruction(OpCode::RETURN));
+        exitScope();
+    }
+
+    // Generate regular methods
     for (auto& method : node.methods) {
         if (!method) {
             continue;
@@ -303,18 +365,25 @@ void CodeGenerator::visit(TypeDef& node) {
 
         current_method_ = previous_method;
     }
+
+    current_type_name_ = previous_type;
 }
 void CodeGenerator::visit(ProtocolDef&) {}
 void CodeGenerator::visit(ProtocolMethodSig&) {}
 
 void CodeGenerator::visit(NewExpr& node) {
+    // 1. Create empty object (pushes obj on stack)
+    emit(Instruction::New(node.type_name, 0));
+
+    // 2. Evaluate constructor args (stack: [obj, arg1, ..., argN])
     for (auto& arg : node.args) {
         if (arg) {
             arg->accept(*this);
         }
     }
 
-    emit(Instruction::New(node.type_name, static_cast<int>(node.args.size())));
+    // 3. Call __init__ via METHOD_CALL (pops args + obj, sets self=obj, calls init)
+    emit(Instruction::MethodCall("__init__", static_cast<int>(node.args.size())));
 }
 
 void CodeGenerator::visit(MemberAccess& node) {
@@ -350,7 +419,20 @@ void CodeGenerator::visit(BaseCall& node) {
         }
     }
 
-    std::string target = current_method_.empty() ? "base" : current_method_;
+    std::string target;
+    if (!current_method_.empty()) {
+        // Resolve the parent type for the current type
+        auto it = parent_map_.find(current_type_name_);
+        std::string parent_type;
+        if (it != parent_map_.end() && !it->second.empty()) {
+            parent_type = it->second;
+        } else {
+            parent_type = "Object";
+        }
+        target = parent_type + "." + current_method_;
+    } else {
+        target = "base";
+    }
     emit(Instruction::BaseCall(target, static_cast<int>(node.args.size())));
 }
 void CodeGenerator::visit(IsExpr& node) {
@@ -473,6 +555,42 @@ void CodeGenerator::visit(VectorIndex& node) {
     emit(Instruction(OpCode::VECTOR_INDEX));
 }
 void CodeGenerator::visit(Program& node) {
+    // Build parent map for ancestor chain computation
+    std::unordered_map<std::string, std::string> parent_map;
+    for (auto& type_def : node.types) {
+        if (type_def) {
+            parent_map[type_def->name] = type_def->parent_name;
+        }
+    }
+    // Built-in type hierarchy
+    parent_map["Number"] = "Object";
+    parent_map["String"] = "Object";
+    parent_map["Boolean"] = "Object";
+    parent_map["Object"] = "";
+
+    // Store parent map for BaseCall resolution
+    parent_map_ = parent_map;
+
+    // Compute full ancestor chains for each user-defined type
+    for (auto& type_def : node.types) {
+        if (type_def) {
+            std::vector<std::string> ancestors;
+            std::string current = type_def->parent_name;
+            if (current.empty()) {
+                current = "Object";
+            }
+            while (!current.empty()) {
+                ancestors.push_back(current);
+                auto it = parent_map.find(current);
+                if (it == parent_map.end() || it->second.empty()) {
+                    break;
+                }
+                current = it->second;
+            }
+            program_.type_ancestors[type_def->name] = ancestors;
+        }
+    }
+
     for (auto& type_def : node.types) {
         if (type_def) {
             type_def->accept(*this);
@@ -493,12 +611,14 @@ void CodeGenerator::visit(Program& node) {
 }
 
 void CodeGenerator::visit(LambdaExpr& node) {
-    // El TypeDef anónimo ya fue agregado a program.types durante el análisis semántico
-    // y se emitió antes de este punto (visit(Program) procesa tipos primero).
-    // Aquí solo instanciamos el tipo, pasando las variables capturadas como args.
+    // 1. Create empty object (the anonymous lambda TypeDef)
+    emit(Instruction::New(node.generated_type_name, 0));
+
+    // 2. Evaluate captured variables as args
     for (const auto& var : node.captured_vars) {
         emitLoad(var);
     }
-    emit(Instruction::New(node.generated_type_name,
-                          static_cast<int>(node.captured_vars.size())));
+
+    // 3. Call __init__ to store captured vars as attributes
+    emit(Instruction::MethodCall("__init__", static_cast<int>(node.captured_vars.size())));
 }

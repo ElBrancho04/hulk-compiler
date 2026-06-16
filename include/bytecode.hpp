@@ -281,6 +281,7 @@ struct BytecodeProgram {
     std::vector<Instruction> code;
     std::vector<Value> constants;
     std::unordered_map<std::string, std::size_t> function_table;
+    std::unordered_map<std::string, std::vector<std::string>> type_ancestors;
 
     std::size_t addConstant(const Value& value, bool dedupe = true) {
         if (dedupe) {

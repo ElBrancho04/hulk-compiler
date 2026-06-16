@@ -312,7 +312,12 @@ void VM::execute(BytecodeProgram& program) {
                 break;
             }
             case OpCode::NEW: {
-                auto obj = std::make_shared<HulkObject>(inst.name);
+                std::vector<std::string> ancestors;
+                auto it = program.type_ancestors.find(inst.name);
+                if (it != program.type_ancestors.end()) {
+                    ancestors = it->second;
+                }
+                auto obj = std::make_shared<HulkObject>(inst.name, std::move(ancestors));
                 stack_.push_back(Value::Object(obj));
                 break;
             }
@@ -391,16 +396,47 @@ void VM::execute(BytecodeProgram& program) {
                 break;
             }
             case OpCode::IS: {
-                auto obj = popObject("IS");
-                stack_.push_back(Value::Boolean(obj->type_name == inst.name));
+                Value val = popValue();
+                bool result = false;
+                if (val.type == ValueType::Object && val.object_value) {
+                    auto& obj = val.object_value;
+                    result = obj->type_name == inst.name ||
+                        std::find(obj->ancestors.begin(), obj->ancestors.end(), inst.name) != obj->ancestors.end();
+                } else {
+                    // Handle primitive types (Number, String, Boolean)
+                    std::string type_name;
+                    switch (val.type) {
+                        case ValueType::Number:  type_name = "Number";  break;
+                        case ValueType::String:  type_name = "String";  break;
+                        case ValueType::Boolean: type_name = "Boolean"; break;
+                        default: break;
+                    }
+                    result = (type_name == inst.name) || (inst.name == "Object");
+                }
+                stack_.push_back(Value::Boolean(result));
                 break;
             }
             case OpCode::AS: {
-                auto obj = popObject("AS");
-                if (obj->type_name != inst.name) {
+                Value val = popValue();
+                bool compatible = false;
+                if (val.type == ValueType::Object && val.object_value) {
+                    auto& obj = val.object_value;
+                    compatible = obj->type_name == inst.name ||
+                        std::find(obj->ancestors.begin(), obj->ancestors.end(), inst.name) != obj->ancestors.end();
+                } else {
+                    std::string type_name;
+                    switch (val.type) {
+                        case ValueType::Number:  type_name = "Number";  break;
+                        case ValueType::String:  type_name = "String";  break;
+                        case ValueType::Boolean: type_name = "Boolean"; break;
+                        default: break;
+                    }
+                    compatible = (type_name == inst.name) || (inst.name == "Object");
+                }
+                if (!compatible) {
                     throw RuntimeError("Invalid downcast to " + inst.name);
                 }
-                stack_.push_back(Value::Object(obj));
+                stack_.push_back(val);
                 break;
             }
             case OpCode::NEW_VECTOR: {
