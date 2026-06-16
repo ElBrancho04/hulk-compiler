@@ -18,6 +18,7 @@ TEST_TARGETS=(
     "bytecode_smoke_test"
     "codegen_smoke_test"
     "vm_smoke_test"
+    "for_loop_e2e_test"
     "type_table_smoke_test"
     "semantic_utils_smoke_test"
     "semantic_analyzer_smoke_test"

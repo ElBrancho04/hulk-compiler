@@ -485,14 +485,33 @@ void VM::execute(BytecodeProgram& program) {
                 break;
             }
             case OpCode::ITER_NEXT: {
-                auto range = popRange("ITER_NEXT");
-                Value result = range->next();
-                stack_.push_back(Value::Boolean(result.bool_value));
+                Value top = popValue();
+                if (top.type == ValueType::Object && top.object_value) {
+                    auto range = std::dynamic_pointer_cast<HulkRange>(top.object_value);
+                    if (!range) {
+                        throw RuntimeError("Expected iterable for ITER_NEXT");
+                    }
+                    stack_.push_back(range->next());
+                } else if (top.type == ValueType::Vector && top.vector_value) {
+                    stack_.push_back(top.vector_value->next());
+                } else {
+                    throw RuntimeError("Expected iterable for ITER_NEXT");
+                }
                 break;
             }
             case OpCode::ITER_CURRENT: {
-                auto range = popRange("ITER_CURRENT");
-                stack_.push_back(range->current());
+                Value top = popValue();
+                if (top.type == ValueType::Object && top.object_value) {
+                    auto range = std::dynamic_pointer_cast<HulkRange>(top.object_value);
+                    if (!range) {
+                        throw RuntimeError("Expected iterable for ITER_CURRENT");
+                    }
+                    stack_.push_back(range->current());
+                } else if (top.type == ValueType::Vector && top.vector_value) {
+                    stack_.push_back(top.vector_value->current());
+                } else {
+                    throw RuntimeError("Expected iterable for ITER_CURRENT");
+                }
                 break;
             }
             case OpCode::RANGE: {

@@ -57,6 +57,12 @@ add_executable(vm_smoke_test
     src/vm.cpp
 )
 
+add_executable(for_loop_e2e_test
+    tests/for_loop_e2e_test.cpp
+    src/code_generator.cpp
+    src/vm.cpp
+)
+
 add_executable(type_table_smoke_test
     tests/type_table_smoke_test.cpp
     src/type_table.cpp

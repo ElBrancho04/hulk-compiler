@@ -215,25 +215,38 @@ void CodeGenerator::visit(WhileExpr& node) {
 void CodeGenerator::visit(ForExpr& node) {
     enterScope();
 
+    std::string iter_var = makeTemp("_iter");
+    std::string result_var = makeTemp("_result");
+
+    // result starts as null (returned if zero iterations)
+    std::size_t null_idx = getConstantIndex(Value::Null());
+    emit(Instruction::PushConst(static_cast<int>(null_idx)));
+    emitStore(result_var);
+
     if (node.iterable) {
         node.iterable->accept(*this);
     }
+    emitStore(iter_var);
 
     std::size_t loop_start = program_.code.size();
+    emitLoad(iter_var);
     emit(Instruction(OpCode::ITER_NEXT));
     std::size_t exit_jump = emitJump(OpCode::JUMP_IF_FALSE);
 
+    emitLoad(iter_var);
     emit(Instruction(OpCode::ITER_CURRENT));
     emitStore(node.variable_name);
 
     if (node.body) {
         node.body->accept(*this);
     }
+    emitStore(result_var);  // save body result; net stack-neutral
 
     std::size_t back_jump = emitJump(OpCode::JUMP);
     patchJump(back_jump, loop_start);
     patchJump(exit_jump, program_.code.size());
 
+    emitLoad(result_var);  // for-expression value = last body result (or null)
     exitScope();
 }
 void CodeGenerator::visit(FuncCall& node) {
@@ -455,12 +468,11 @@ void CodeGenerator::visit(AsExpr& node) {
 }
 
 void CodeGenerator::visit(VectorLiteral& node) {
-    if (!node.elements.empty()) {
-        for (std::size_t i = node.elements.size(); i > 0; --i) {
-            auto& element = node.elements[i - 1];
-            if (element) {
-                element->accept(*this);
-            }
+    // Push elements in source order. NEW_VECTOR pops them (reversing once)
+    // and reverses again internally, so forward push yields source order.
+    for (auto& element : node.elements) {
+        if (element) {
+            element->accept(*this);
         }
     }
 

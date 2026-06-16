@@ -108,6 +108,112 @@ int main() {
             }
         }
 
+        // VECTOR ITER: iterate [10, 20, 30], check first current == 10
+        {
+            BytecodeProgram program;
+            auto c10 = program.addConstant(Value::Number(10.0));
+            auto c20 = program.addConstant(Value::Number(20.0));
+            auto c30 = program.addConstant(Value::Number(30.0));
+            program.addInstruction(Instruction::PushConst(static_cast<int>(c10)));
+            program.addInstruction(Instruction::PushConst(static_cast<int>(c20)));
+            program.addInstruction(Instruction::PushConst(static_cast<int>(c30)));
+            program.addInstruction(Instruction::NewVector(3));
+            program.addInstruction(Instruction::Store("v"));
+            // next() → true
+            program.addInstruction(Instruction::Load("v"));
+            program.addInstruction(Instruction(OpCode::ITER_NEXT));
+            program.addInstruction(Instruction(OpCode::POP));
+            // current() → 10
+            program.addInstruction(Instruction::Load("v"));
+            program.addInstruction(Instruction(OpCode::ITER_CURRENT));
+            program.addInstruction(Instruction(OpCode::HALT));
+            Value result = run_program(program);
+            if (result.type != ValueType::Number || result.number_value != 10.0) {
+                std::cerr << "[FAIL] vector iter first element" << std::endl;
+                return 1;
+            }
+            std::cout << "[OK] vector iter first element" << std::endl;
+        }
+
+        // VECTOR ITER: exhaust [5, 6], check next() returns false at end
+        {
+            BytecodeProgram program;
+            auto c5 = program.addConstant(Value::Number(5.0));
+            auto c6 = program.addConstant(Value::Number(6.0));
+            program.addInstruction(Instruction::PushConst(static_cast<int>(c5)));
+            program.addInstruction(Instruction::PushConst(static_cast<int>(c6)));
+            program.addInstruction(Instruction::NewVector(2));
+            program.addInstruction(Instruction::Store("v2"));
+            // next() x2 (both true)
+            program.addInstruction(Instruction::Load("v2"));
+            program.addInstruction(Instruction(OpCode::ITER_NEXT));
+            program.addInstruction(Instruction(OpCode::POP));
+            program.addInstruction(Instruction::Load("v2"));
+            program.addInstruction(Instruction(OpCode::ITER_NEXT));
+            program.addInstruction(Instruction(OpCode::POP));
+            // next() x1 → false (past end)
+            program.addInstruction(Instruction::Load("v2"));
+            program.addInstruction(Instruction(OpCode::ITER_NEXT));
+            program.addInstruction(Instruction(OpCode::HALT));
+            Value result = run_program(program);
+            if (result.type != ValueType::Boolean || result.bool_value != false) {
+                std::cerr << "[FAIL] vector iter exhaustion" << std::endl;
+                return 1;
+            }
+            std::cout << "[OK] vector iter exhaustion" << std::endl;
+        }
+
+        // FOR LOOP OVER VECTOR: for(x in [1,2,3]) x → result = 3 (last body value)
+        // Mirrors the bytecode pattern emitted by the fixed visit(ForExpr)
+        {
+            BytecodeProgram program;
+            auto null_c = program.addConstant(Value::Null());
+            auto c1 = program.addConstant(Value::Number(1.0));
+            auto c2 = program.addConstant(Value::Number(2.0));
+            auto c3 = program.addConstant(Value::Number(3.0));
+
+            // ip 0: PUSH_CONST null → STORE _result
+            program.addInstruction(Instruction::PushConst(static_cast<int>(null_c)));
+            program.addInstruction(Instruction::Store("_result"));
+
+            // ip 2-6: build vector [1,2,3], STORE _iter
+            program.addInstruction(Instruction::PushConst(static_cast<int>(c1)));
+            program.addInstruction(Instruction::PushConst(static_cast<int>(c2)));
+            program.addInstruction(Instruction::PushConst(static_cast<int>(c3)));
+            program.addInstruction(Instruction::NewVector(3));
+            program.addInstruction(Instruction::Store("_iter"));
+
+            // ip 7: loop_start — LOAD _iter, ITER_NEXT
+            program.addInstruction(Instruction::Load("_iter"));   // ip 7
+            program.addInstruction(Instruction(OpCode::ITER_NEXT)); // ip 8
+            // ip 9: JUMP_IF_FALSE exit (ip 16) → offset = 16 - 10 = 6
+            program.addInstruction(Instruction::JumpIfFalse(6));   // ip 9
+
+            // ip 10-12: LOAD _iter, ITER_CURRENT, STORE x
+            program.addInstruction(Instruction::Load("_iter"));    // ip 10
+            program.addInstruction(Instruction(OpCode::ITER_CURRENT)); // ip 11
+            program.addInstruction(Instruction::Store("x"));       // ip 12
+
+            // ip 13-14: body (LOAD x) → STORE _result
+            program.addInstruction(Instruction::Load("x"));        // ip 13
+            program.addInstruction(Instruction::Store("_result")); // ip 14
+
+            // ip 15: JUMP back to loop_start (ip 7) → offset = 7 - 16 = -9
+            program.addInstruction(Instruction::Jump(-9));         // ip 15
+
+            // ip 16: exit → LOAD _result, HALT
+            program.addInstruction(Instruction::Load("_result"));  // ip 16
+            program.addInstruction(Instruction(OpCode::HALT));     // ip 17
+
+            Value result = run_program(program);
+            if (result.type != ValueType::Number || result.number_value != 3.0) {
+                std::cerr << "[FAIL] for-loop over vector (expected 3, got "
+                          << result.number_value << ")" << std::endl;
+                return 1;
+            }
+            std::cout << "[OK] for-loop over vector (last element = 3)" << std::endl;
+        }
+
         // Errors: invalid AS and division by zero
         bool as_error = expect_runtime_error("invalid AS", []() {
             BytecodeProgram program;
