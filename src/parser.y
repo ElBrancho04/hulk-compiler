@@ -9,10 +9,11 @@
 
 extern int yylex();
 extern int line_number;
+extern int column_number;
 extern char* yytext;
 void yyerror(const char *s);
 
-// El nodo raíz
+// El nodo raiz
 Program* root = nullptr;
 
 struct TypeBodyElements {
@@ -79,7 +80,7 @@ std::vector<std::unique_ptr<T>> to_unique_vec(std::vector<T*>* src) {
     struct Definitions* definitions;
 }
 
-/* --- Declaración de Tokens --- */
+/* --- Declaracion de Tokens --- */
 %token <float_val> NUMBER
 %token <str_val> IDENTIFIER STRING
 %token TOK_LET TOK_IN TOK_IF TOK_ELSE TOK_ELIF TOK_WHILE TOK_FOR
@@ -133,14 +134,15 @@ program:
             to_unique_vec($1->protocols),
             to_unique_vec($1->functions),
             std::unique_ptr<Expr>($2),
-            line_number
+            line_number,
+            column_number
         );
         delete $1;
     }
     ;
 
 definition_list:
-    /* vacío */
+    /* vacio */
     {
         $$ = new Definitions{
             new std::vector<TypeDef*>(),
@@ -155,9 +157,9 @@ definition_list:
 
 function_definition:
     TOK_FUNCTION IDENTIFIER '(' params_list ')' opt_return_type TOK_ARROW expression ';'
-    { $$ = new FuncDef($2, *$4, $6 ? $6 : "", std::unique_ptr<Expr>($8), line_number); delete $4; }
+    { $$ = new FuncDef($2, *$4, $6 ? $6 : "", std::unique_ptr<Expr>($8), line_number, column_number); delete $4; }
     | TOK_FUNCTION IDENTIFIER '(' params_list ')' opt_return_type block_expr opt_semicolon
-    { $$ = new FuncDef($2, *$4, $6 ? $6 : "", std::unique_ptr<Expr>($7), line_number); delete $4; }
+    { $$ = new FuncDef($2, *$4, $6 ? $6 : "", std::unique_ptr<Expr>($7), line_number, column_number); delete $4; }
     ;
 
 type_definition:
@@ -170,7 +172,8 @@ type_definition:
             to_unique_vec($4->args),
             to_unique_vec($6->attrs),
             to_unique_vec($6->methods),
-            line_number
+            line_number,
+            column_number
         );
         delete $3;
         delete $4;
@@ -185,7 +188,8 @@ protocol_definition:
             $2,
             $3 ? $3 : "",
             to_unique_vec($5->methods),
-            line_number
+            line_number,
+            column_number
         );
         delete $5;
     }
@@ -196,17 +200,17 @@ comp_expr:
     ;
 
 opt_type_params:
-    /* vacío */ { $$ = new std::vector<Parameter>(); }
+    /* vacio */ { $$ = new std::vector<Parameter>(); }
     | '(' params_list ')' { $$ = $2; }
     ;
 
 opt_return_type:
-    /* vacío */ { $$ = nullptr; }
+    /* vacio */ { $$ = nullptr; }
     | TOK_TYPE_ARROW type_expr { $$ = $2; }
     ;
 
 opt_inherits:
-    /* vacío */ { $$ = new InheritsInfo{nullptr, new std::vector<Expr*>()}; }
+    /* vacio */ { $$ = new InheritsInfo{nullptr, new std::vector<Expr*>()}; }
     | TOK_INHERITS IDENTIFIER opt_type_args
     {
         $$ = new InheritsInfo{$2, $3};
@@ -214,17 +218,17 @@ opt_inherits:
     ;
 
 opt_extends:
-    /* vacío */ { $$ = nullptr; }
+    /* vacio */ { $$ = nullptr; }
     | TOK_EXTENDS IDENTIFIER { $$ = $2; }
     ;
 
 opt_type_args:
-    /* vacío */ { $$ = new std::vector<Expr*>(); }
+    /* vacio */ { $$ = new std::vector<Expr*>(); }
     | '(' expression_list ')' { $$ = $2; }
     ;
 
 params_list:
-    /* vacío */ { $$ = new std::vector<Parameter>(); }
+    /* vacio */ { $$ = new std::vector<Parameter>(); }
     | params_list_not_empty { $$ = $1; }
     ;
 
@@ -238,14 +242,14 @@ expression:
     ;
 
 assign_expr:
-    IDENTIFIER TOK_ASSIGN assign_expr { $$ = new AssignExpr($1, std::unique_ptr<Expr>($3), line_number); }
+    IDENTIFIER TOK_ASSIGN assign_expr { $$ = new AssignExpr($1, std::unique_ptr<Expr>($3), line_number, column_number); }
     | let_expr { $$ = $1; }
     ;
 
 let_expr:
     TOK_LET let_bindings TOK_IN let_expr
     {
-        $$ = new LetExpr(std::move(*$2), std::unique_ptr<Expr>($4), line_number);
+        $$ = new LetExpr(std::move(*$2), std::unique_ptr<Expr>($4), line_number, column_number);
         delete $2;
     }
     | if_expr { $$ = $1; }
@@ -259,14 +263,14 @@ if_expr:
         for (auto& br : *$6) {
             branches.emplace_back(std::move(br.condition), std::move(br.body));
         }
-        $$ = new IfExpr(std::move(branches), std::unique_ptr<Expr>($8), line_number);
+        $$ = new IfExpr(std::move(branches), std::unique_ptr<Expr>($8), line_number, column_number);
         delete $6;
     }
     | while_expr { $$ = $1; }
     ;
 
 if_branches:
-    /* vacío */ { $$ = new std::vector<IfBranch>(); }
+    /* vacio */ { $$ = new std::vector<IfBranch>(); }
     | if_branches TOK_ELIF '(' expression ')' expression
     {
         $1->emplace_back(std::unique_ptr<Expr>($4), std::unique_ptr<Expr>($6));
@@ -275,88 +279,88 @@ if_branches:
     ;
 
 while_expr:
-    TOK_WHILE '(' expression ')' expression { $$ = new WhileExpr(std::unique_ptr<Expr>($3), std::unique_ptr<Expr>($5), line_number); }
+    TOK_WHILE '(' expression ')' expression { $$ = new WhileExpr(std::unique_ptr<Expr>($3), std::unique_ptr<Expr>($5), line_number, column_number); }
     | for_expr { $$ = $1; }
     ;
 
 for_expr:
     TOK_FOR '(' IDENTIFIER TOK_IN expression ')' expression
-    { $$ = new ForExpr($3, std::unique_ptr<Expr>($5), std::unique_ptr<Expr>($7), line_number); }
+    { $$ = new ForExpr($3, std::unique_ptr<Expr>($5), std::unique_ptr<Expr>($7), line_number, column_number); }
     | or_expr { $$ = $1; }
     ;
 
 or_expr:
-    or_expr '|' and_expr { $$ = new BinaryExpr("|", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
+    or_expr '|' and_expr { $$ = new BinaryExpr("|", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | and_expr { $$ = $1; }
     ;
 
 and_expr:
-    and_expr '&' not_expr { $$ = new BinaryExpr("&", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
+    and_expr '&' not_expr { $$ = new BinaryExpr("&", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | not_expr { $$ = $1; }
     ;
 
 not_expr:
-    '!' not_expr { $$ = new UnaryExpr("!", std::unique_ptr<Expr>($2), line_number); }
+    '!' not_expr { $$ = new UnaryExpr("!", std::unique_ptr<Expr>($2), line_number, column_number); }
     | comparison_expr { $$ = $1; }
     ;
 
 comparison_expr:
     concat_expr { $$ = $1; }
-    | concat_expr TOK_EQ concat_expr { $$ = new BinaryExpr("==", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
-    | concat_expr TOK_NEQ concat_expr { $$ = new BinaryExpr("!=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
-    | concat_expr '<' concat_expr { $$ = new BinaryExpr("<", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
-    | concat_expr '>' concat_expr { $$ = new BinaryExpr(">", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
-    | concat_expr TOK_LEQ concat_expr { $$ = new BinaryExpr("<=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
-    | concat_expr TOK_GEQ concat_expr { $$ = new BinaryExpr(">=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
-    | concat_expr TOK_IS IDENTIFIER { $$ = new IsExpr(std::unique_ptr<Expr>($1), $3, line_number); }
-    | concat_expr TOK_AS IDENTIFIER { $$ = new AsExpr(std::unique_ptr<Expr>($1), $3, line_number); }
+    | concat_expr TOK_EQ concat_expr { $$ = new BinaryExpr("==", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_NEQ concat_expr { $$ = new BinaryExpr("!=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr '<' concat_expr { $$ = new BinaryExpr("<", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr '>' concat_expr { $$ = new BinaryExpr(">", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_LEQ concat_expr { $$ = new BinaryExpr("<=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_GEQ concat_expr { $$ = new BinaryExpr(">=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_IS IDENTIFIER { $$ = new IsExpr(std::unique_ptr<Expr>($1), $3, line_number, column_number); }
+    | concat_expr TOK_AS IDENTIFIER { $$ = new AsExpr(std::unique_ptr<Expr>($1), $3, line_number, column_number); }
     ;
 
 concat_expr:
-    concat_expr TOK_CONCAT add_expr { $$ = new BinaryExpr("@", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
-    | concat_expr TOK_DCONCAT add_expr { $$ = new BinaryExpr("@@", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
+    concat_expr TOK_CONCAT add_expr { $$ = new BinaryExpr("@", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_DCONCAT add_expr { $$ = new BinaryExpr("@@", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | add_expr { $$ = $1; }
     ;
 
 add_expr:
-    add_expr '+' mul_expr { $$ = new BinaryExpr("+", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
-    | add_expr '-' mul_expr { $$ = new BinaryExpr("-", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
+    add_expr '+' mul_expr { $$ = new BinaryExpr("+", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | add_expr '-' mul_expr { $$ = new BinaryExpr("-", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | mul_expr { $$ = $1; }
     ;
 
 mul_expr:
-    mul_expr '*' pow_expr { $$ = new BinaryExpr("*", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
-    | mul_expr '/' pow_expr { $$ = new BinaryExpr("/", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
+    mul_expr '*' pow_expr { $$ = new BinaryExpr("*", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | mul_expr '/' pow_expr { $$ = new BinaryExpr("/", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | pow_expr { $$ = $1; }
     ;
 
 pow_expr:
-    unary_expr '^' pow_expr { $$ = new BinaryExpr("^", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
+    unary_expr '^' pow_expr { $$ = new BinaryExpr("^", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | unary_expr { $$ = $1; }
     ;
 
 unary_expr:
-    '-' unary_expr %prec NEG { $$ = new UnaryExpr("-", std::unique_ptr<Expr>($2), line_number); }
+    '-' unary_expr %prec NEG { $$ = new UnaryExpr("-", std::unique_ptr<Expr>($2), line_number, column_number); }
     | postfix_expr { $$ = $1; }
     ;
 
 postfix_expr:
     primary_expr { $$ = $1; }
-    | postfix_expr '.' IDENTIFIER { $$ = new MemberAccess(std::unique_ptr<Expr>($1), $3, line_number); }
-    | postfix_expr '.' IDENTIFIER '(' opt_expression_list ')' { $$ = new MethodCall(std::unique_ptr<Expr>($1), $3, to_unique_vec($5), line_number); }
-    | postfix_expr '[' expression ']' { $$ = new VectorIndex(std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number); }
+    | postfix_expr '.' IDENTIFIER { $$ = new MemberAccess(std::unique_ptr<Expr>($1), $3, line_number, column_number); }
+    | postfix_expr '.' IDENTIFIER '(' opt_expression_list ')' { $$ = new MethodCall(std::unique_ptr<Expr>($1), $3, to_unique_vec($5), line_number, column_number); }
+    | postfix_expr '[' expression ']' { $$ = new VectorIndex(std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     ;
 
 primary_expr:
-    NUMBER { $$ = new NumberLiteral($1, line_number); }
-    | STRING { $$ = new StringLiteral($1, line_number); }
-    | TOK_TRUE { $$ = new BoolLiteral(true, line_number); }
-    | TOK_FALSE { $$ = new BoolLiteral(false, line_number); }
-    | IDENTIFIER { $$ = new VarRef($1, line_number); }
-    | IDENTIFIER '(' opt_expression_list ')' { $$ = new FuncCall($1, to_unique_vec($3), line_number); }
-    | TOK_NEW IDENTIFIER '(' opt_expression_list ')' { $$ = new NewExpr($2, to_unique_vec($4), line_number); }
-    | TOK_BASE '(' opt_expression_list ')' { $$ = new BaseCall(to_unique_vec($3), line_number); }
-    | TOK_SELF { $$ = new SelfRef(line_number); }
+    NUMBER { $$ = new NumberLiteral($1, line_number, column_number); }
+    | STRING { $$ = new StringLiteral($1, line_number, column_number); }
+    | TOK_TRUE { $$ = new BoolLiteral(true, line_number, column_number); }
+    | TOK_FALSE { $$ = new BoolLiteral(false, line_number, column_number); }
+    | IDENTIFIER { $$ = new VarRef($1, line_number, column_number); }
+    | IDENTIFIER '(' opt_expression_list ')' { $$ = new FuncCall($1, to_unique_vec($3), line_number, column_number); }
+    | TOK_NEW IDENTIFIER '(' opt_expression_list ')' { $$ = new NewExpr($2, to_unique_vec($4), line_number, column_number); }
+    | TOK_BASE '(' opt_expression_list ')' { $$ = new BaseCall(to_unique_vec($3), line_number, column_number); }
+    | TOK_SELF { $$ = new SelfRef(line_number, column_number); }
     | '(' expression ')' { $$ = $2; }
     | '(' ')' opt_return_type TOK_ARROW expression
     {
@@ -364,7 +368,8 @@ primary_expr:
             std::vector<Parameter>(),
             $3 ? $3 : "",
             std::unique_ptr<Expr>($5),
-            line_number
+            line_number,
+            column_number
         );
     }
     | '(' params_list_not_empty ')' opt_return_type TOK_ARROW expression
@@ -373,12 +378,13 @@ primary_expr:
             *$2,
             $4 ? $4 : "",
             std::unique_ptr<Expr>($6),
-            line_number
+            line_number,
+            column_number
         );
         delete $2;
     }
     | block_expr { $$ = $1; }
-    | '[' opt_vector_elements ']' { $$ = new VectorLiteral(to_unique_vec($2), line_number); }
+    | '[' opt_vector_elements ']' { $$ = new VectorLiteral(to_unique_vec($2), line_number, column_number); }
     | '[' comp_expr '|' IDENTIFIER TOK_IN expression opt_vector_filter ']'
     {
         if ($7) {
@@ -387,25 +393,27 @@ primary_expr:
                 $4,
                 std::unique_ptr<Expr>($6),
                 std::unique_ptr<Expr>($7),
-                line_number
+                line_number,
+                column_number
             );
         } else {
             $$ = new VectorComprehension(
                 std::unique_ptr<Expr>($2),
                 $4,
                 std::unique_ptr<Expr>($6),
-                line_number
+                line_number,
+                column_number
             );
         }
     }
     ;
 
 block_expr:
-    '{' block_expression_list '}' { $$ = new BlockExpr(to_unique_vec($2), line_number); }
+    '{' block_expression_list '}' { $$ = new BlockExpr(to_unique_vec($2), line_number, column_number); }
     ;
 
 opt_expression_list:
-    /* vacío */ { $$ = new std::vector<Expr*>(); }
+    /* vacio */ { $$ = new std::vector<Expr*>(); }
     | expression_list { $$ = $1; }
     ;
 
@@ -415,7 +423,7 @@ expression_list:
     ;
 
 opt_vector_elements:
-    /* vacío */ { $$ = new std::vector<Expr*>(); }
+    /* vacio */ { $$ = new std::vector<Expr*>(); }
     | vector_elements { $$ = $1; }
     ;
 
@@ -446,7 +454,7 @@ type_expr:
     ;
 
 opt_type_annotation:
-    /* vacío */ { $$ = nullptr; }
+    /* vacio */ { $$ = nullptr; }
     | ':' type_expr { $$ = $2; }
     ;
 
@@ -464,7 +472,7 @@ let_bindings:
     ;
 
 opt_vector_filter:
-    /* vacío */ { $$ = nullptr; }
+    /* vacio */ { $$ = nullptr; }
     | TOK_IF expression { $$ = $2; }
     ;
 
@@ -474,7 +482,7 @@ block_expression_list:
     ;
 
 type_body_elements:
-    /* vacío */
+    /* vacio */
     {
         $$ = new TypeBodyElements{
             new std::vector<AttributeDef*>(),
@@ -496,25 +504,25 @@ type_body_elements:
 attribute_def:
     IDENTIFIER opt_type_annotation '=' expression ';'
     {
-        $$ = new AttributeDef($1, $2 ? $2 : "", std::unique_ptr<Expr>($4), line_number);
+        $$ = new AttributeDef($1, $2 ? $2 : "", std::unique_ptr<Expr>($4), line_number, column_number);
     }
     ;
 
 method_def:
     IDENTIFIER '(' params_list ')' opt_return_type TOK_ARROW expression ';'
     {
-        $$ = new MethodDef($1, *$3, $5 ? $5 : "", std::unique_ptr<Expr>($7), line_number);
+        $$ = new MethodDef($1, *$3, $5 ? $5 : "", std::unique_ptr<Expr>($7), line_number, column_number);
         delete $3;
     }
     | IDENTIFIER '(' params_list ')' opt_return_type block_expr opt_semicolon
     {
-        $$ = new MethodDef($1, *$3, $5 ? $5 : "", std::unique_ptr<Expr>($6), line_number);
+        $$ = new MethodDef($1, *$3, $5 ? $5 : "", std::unique_ptr<Expr>($6), line_number, column_number);
         delete $3;
     }
     ;
 
 protocol_body_elements:
-    /* vacío */
+    /* vacio */
     {
         $$ = new ProtocolBodyElements{
             new std::vector<ProtocolMethodSig*>()
@@ -530,18 +538,19 @@ protocol_body_elements:
 protocol_method_sig:
     IDENTIFIER '(' params_list ')' opt_return_type ';'
     {
-        $$ = new ProtocolMethodSig($1, *$3, $5 ? $5 : "", line_number);
+        $$ = new ProtocolMethodSig($1, *$3, $5 ? $5 : "", line_number, column_number);
         delete $3;
     }
     ;
 
 opt_semicolon:
-    /* vacío */
+    /* vacio */
     | ';'
     ;
 
 %%
 
 void yyerror(const char *s) {
-    std::cerr << "Syntax Error: " << s << " at line " << line_number << " near '" << yytext << "'" << std::endl;
+    std::cerr << "(" << line_number << "," << column_number << ") SYNTACTIC: " << s
+              << " near '" << yytext << "'" << std::endl;
 }

@@ -4,6 +4,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <algorithm>
 
 #include "ast.hpp"
 #include "semantic_context.hpp"
@@ -27,6 +28,9 @@ public:
     SemanticAnalyzer();
 
     void analyze(Program& program);
+
+    // Access collected non-fatal errors after analysis
+    const std::vector<SemanticError>& errors() const { return errors_; }
 
     std::string visit(NumberLiteral& node) override;
     std::string visit(StringLiteral& node) override;
@@ -70,6 +74,7 @@ private:
     std::unordered_map<std::string, TypeInfo> analyzed_types_;
     int lambda_counter_ = 0;
     Program* current_program_ = nullptr;
+    std::vector<SemanticError> errors_;
 
     void pass1_register_types(Program& program);
     void pass2_register_functions(Program& program);
@@ -87,6 +92,7 @@ private:
                                    const std::string& right,
                                    int line,
                                    const std::string& context);
+    void report_error(int line, int col, const std::string& message);
 
     void register_protocols(const std::vector<std::unique_ptr<ProtocolDef>>& protocols);
     static void validate_no_cycles(const std::unordered_map<std::string, std::string>& parents,

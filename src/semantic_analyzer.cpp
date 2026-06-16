@@ -44,9 +44,22 @@ void collect_all_var_names(Expr* expr, std::unordered_set<std::string>& out) {
 void SemanticAnalyzer::analyze(Program& program) {
     current_program_ = &program;
     register_builtins();
-    pass1_register_types(program);
-    pass2_register_functions(program);
-    pass3_type_check(program);
+    // Fatal errors from pass1/pass2/pass3 are caught and added to errors_.
+    // This ensures all errors are collected and printed together.
+    try {
+        pass1_register_types(program);
+        pass2_register_functions(program);
+        pass3_type_check(program);
+    } catch (const SemanticError& e) {
+        errors_.push_back(e);
+    }
+    if (!errors_.empty()) {
+        for (const auto& err : errors_) {
+            std::cerr << err.what() << "\n";
+        }
+        throw SemanticError(errors_.front().line(), errors_.front().col(),
+            "semantic analysis failed with " + std::to_string(errors_.size()) + " error(s)");
+    }
 }
 
 SemanticAnalyzer::SemanticAnalyzer() {
@@ -311,6 +324,10 @@ void SemanticAnalyzer::ensure_type_registered(const std::string& type_name, int 
     }
 }
 
+void SemanticAnalyzer::report_error(int line, int col, const std::string& message) {
+    errors_.emplace_back(line, col, message);
+}
+
 void SemanticAnalyzer::ensure_conforms(const std::string& actual,
                                        const std::string& expected,
                                        int line,
@@ -321,7 +338,7 @@ void SemanticAnalyzer::ensure_conforms(const std::string& actual,
     ensure_type_registered(actual, line);
     ensure_type_registered(expected, line);
     if (!type_table_.conforms_to(actual, expected)) {
-        throw SemanticError(line, "tipo incompatible en " + context + ": se esperaba " + expected + ", se obtuvo " + actual);
+        report_error(line, 0, "tipo incompatible en " + context + ": se esperaba " + expected + ", se obtuvo " + actual);
     }
 }
 
@@ -338,7 +355,7 @@ void SemanticAnalyzer::ensure_equals_or_conforms(const std::string& left,
     if (type_table_.conforms_to(left, right) || type_table_.conforms_to(right, left)) {
         return;
     }
-    throw SemanticError(line, "tipos incompatibles en " + context + ": " + left + " y " + right);
+    report_error(line, 0, "tipos incompatibles en " + context + ": " + left + " y " + right);
 }
 
 std::string SemanticAnalyzer::resolve_attribute_type(const std::string& type_name,
@@ -1051,8 +1068,9 @@ std::string SemanticAnalyzer::visit(LambdaExpr& node) {
         // El atributo se inicializa con el parámetro de constructor homónimo
         attrs.push_back(std::make_unique<AttributeDef>(
             attr_name, ctype,
-            std::make_unique<VarRef>(attr_name, node.line),
-            node.line
+            std::make_unique<VarRef>(attr_name, node.line, node.col),
+            node.line,
+            node.col
         ));
     }
 
@@ -1069,13 +1087,14 @@ std::string SemanticAnalyzer::visit(LambdaExpr& node) {
             rebind.emplace_back(
                 var, "",
                 std::make_unique<MemberAccess>(
-                    std::make_unique<SelfRef>(node.line),
+                    std::make_unique<SelfRef>(node.line, node.col),
                     "_" + var,
-                    node.line
+                    node.line,
+                    node.col
                 )
             );
         }
-        invoke_body = std::make_unique<LetExpr>(std::move(rebind), std::move(node.body), node.line);
+        invoke_body = std::make_unique<LetExpr>(std::move(rebind), std::move(node.body), node.line, node.col);
     }
 
     std::vector<std::string> invoke_param_types;

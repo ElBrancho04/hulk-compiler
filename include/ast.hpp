@@ -58,34 +58,35 @@ public:
 class Node {
 public:
     int line;
-    Node(int line) : line(line) {}
+    int col;
+    Node(int line, int col = 0) : line(line), col(col) {}
     virtual ~Node() = default;
     virtual void accept(Visitor<void>& visitor) = 0;
 };
 
 class Expr : public Node {
 public:
-    Expr(int line) : Node(line) {}
+    Expr(int line, int col = 0) : Node(line, col) {}
 };
 
 class NumberLiteral : public Expr {
 public:
     double value;
-    NumberLiteral(double value, int line) : Expr(line), value(value) {}
+    NumberLiteral(double value, int line, int col = 0) : Expr(line, col), value(value) {}
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
 class StringLiteral : public Expr {
 public:
     std::string value;
-    StringLiteral(const std::string& value, int line) : Expr(line), value(value) {}
+    StringLiteral(const std::string& value, int line, int col = 0) : Expr(line, col), value(value) {}
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
 class BoolLiteral : public Expr {
 public:
     bool value;
-    BoolLiteral(bool value, int line) : Expr(line), value(value) {}
+    BoolLiteral(bool value, int line, int col = 0) : Expr(line, col), value(value) {}
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
@@ -94,8 +95,8 @@ public:
     std::string op;
     std::unique_ptr<Expr> left;
     std::unique_ptr<Expr> right;
-    BinaryExpr(std::string op, std::unique_ptr<Expr> left, std::unique_ptr<Expr> right, int line)
-        : Expr(line), op(std::move(op)), left(std::move(left)), right(std::move(right)) {}
+    BinaryExpr(std::string op, std::unique_ptr<Expr> left, std::unique_ptr<Expr> right, int line, int col = 0)
+        : Expr(line, col), op(std::move(op)), left(std::move(left)), right(std::move(right)) {}
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
@@ -103,15 +104,15 @@ class UnaryExpr : public Expr {
 public:
     std::string op;
     std::unique_ptr<Expr> operand;
-    UnaryExpr(std::string op, std::unique_ptr<Expr> operand, int line)
-        : Expr(line), op(std::move(op)), operand(std::move(operand)) {}
+    UnaryExpr(std::string op, std::unique_ptr<Expr> operand, int line, int col = 0)
+        : Expr(line, col), op(std::move(op)), operand(std::move(operand)) {}
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
 class VarRef : public Expr {
 public:
     std::string name;
-    VarRef(std::string name, int line) : Expr(line), name(std::move(name)) {}
+    VarRef(std::string name, int line, int col = 0) : Expr(line, col), name(std::move(name)) {}
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
@@ -120,8 +121,8 @@ public:
     std::string name;
     std::unique_ptr<Expr> value;
 
-    AssignExpr(std::string name, std::unique_ptr<Expr> value, int line)
-        : Expr(line), name(std::move(name)), value(std::move(value)) {}
+    AssignExpr(std::string name, std::unique_ptr<Expr> value, int line, int col = 0)
+        : Expr(line, col), name(std::move(name)), value(std::move(value)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -129,8 +130,8 @@ public:
 class BlockExpr : public Expr {
 public:
     std::vector<std::unique_ptr<Expr>> expressions;
-    BlockExpr(std::vector<std::unique_ptr<Expr>> exprs, int line)
-        : Expr(line), expressions(std::move(exprs)) {}
+    BlockExpr(std::vector<std::unique_ptr<Expr>> exprs, int line, int col = 0)
+        : Expr(line, col), expressions(std::move(exprs)) {}
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
@@ -145,8 +146,8 @@ class IfExpr : public Expr {
 public:
     std::vector<IfBranch> branches;
     std::unique_ptr<Expr> else_body;
-    IfExpr(std::vector<IfBranch> branches, std::unique_ptr<Expr> else_body, int line)
-        : Expr(line), branches(std::move(branches)), else_body(std::move(else_body)) {}
+    IfExpr(std::vector<IfBranch> branches, std::unique_ptr<Expr> else_body, int line, int col = 0)
+        : Expr(line, col), branches(std::move(branches)), else_body(std::move(else_body)) {}
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
@@ -154,8 +155,8 @@ class WhileExpr : public Expr {
 public:
     std::unique_ptr<Expr> condition;
     std::unique_ptr<Expr> body;
-    WhileExpr(std::unique_ptr<Expr> condition, std::unique_ptr<Expr> body, int line)
-        : Expr(line), condition(std::move(condition)), body(std::move(body)) {}
+    WhileExpr(std::unique_ptr<Expr> condition, std::unique_ptr<Expr> body, int line, int col = 0)
+        : Expr(line, col), condition(std::move(condition)), body(std::move(body)) {}
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
@@ -165,8 +166,8 @@ public:
     std::unique_ptr<Expr> iterable;
     std::unique_ptr<Expr> body;
 
-    ForExpr(std::string var_name, std::unique_ptr<Expr> iterable, std::unique_ptr<Expr> body, int line)
-        : Expr(line), variable_name(std::move(var_name)), iterable(std::move(iterable)), body(std::move(body)) {}
+    ForExpr(std::string var_name, std::unique_ptr<Expr> iterable, std::unique_ptr<Expr> body, int line, int col = 0)
+        : Expr(line, col), variable_name(std::move(var_name)), iterable(std::move(iterable)), body(std::move(body)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -185,8 +186,8 @@ public:
     // (variable con método invoke) en lugar de una función global.
     bool is_functor = false;
 
-    FuncCall(std::string name, std::vector<std::unique_ptr<Expr>> args, int line)
-        : Expr(line), name(std::move(name)), args(std::move(args)) {}
+    FuncCall(std::string name, std::vector<std::unique_ptr<Expr>> args, int line, int col = 0)
+        : Expr(line, col), name(std::move(name)), args(std::move(args)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -198,8 +199,8 @@ public:
     std::string return_type;
     std::unique_ptr<Expr> body;
 
-    FuncDef(std::string name, std::vector<Parameter> params, std::string ret_type, std::unique_ptr<Expr> body, int line)
-        : Node(line), name(std::move(name)), params(std::move(params)), return_type(std::move(ret_type)), body(std::move(body)) {}
+    FuncDef(std::string name, std::vector<Parameter> params, std::string ret_type, std::unique_ptr<Expr> body, int line, int col = 0)
+        : Node(line, col), name(std::move(name)), params(std::move(params)), return_type(std::move(ret_type)), body(std::move(body)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -210,8 +211,8 @@ public:
     std::string type_annotation;
     std::unique_ptr<Expr> initializer;
 
-    AttributeDef(std::string name, std::string type, std::unique_ptr<Expr> init, int line)
-        : Node(line), name(std::move(name)), type_annotation(std::move(type)), initializer(std::move(init)) {}
+    AttributeDef(std::string name, std::string type, std::unique_ptr<Expr> init, int line, int col = 0)
+        : Node(line, col), name(std::move(name)), type_annotation(std::move(type)), initializer(std::move(init)) {}
 
     void accept(Visitor<void>& visitor) override { /* No requiere visit independiente si se maneja en TypeDef */ }
 };
@@ -223,8 +224,8 @@ public:
     std::string return_type;
     std::unique_ptr<Expr> body;
 
-    MethodDef(std::string name, std::vector<Parameter> params, std::string ret_type, std::unique_ptr<Expr> body, int line)
-        : Node(line), name(std::move(name)), params(std::move(params)), return_type(std::move(ret_type)), body(std::move(body)) {}
+    MethodDef(std::string name, std::vector<Parameter> params, std::string ret_type, std::unique_ptr<Expr> body, int line, int col = 0)
+        : Node(line, col), name(std::move(name)), params(std::move(params)), return_type(std::move(ret_type)), body(std::move(body)) {}
 
     void accept(Visitor<void>& visitor) override { /* Manejado por TypeDef */ }
 };
@@ -240,8 +241,8 @@ public:
 
         TypeDef(std::string name, std::vector<Parameter> t_params, std::string p_name,
                         std::vector<std::unique_ptr<Expr>> p_args,
-                        std::vector<std::unique_ptr<AttributeDef>> attrs, std::vector<std::unique_ptr<MethodDef>> meths, int line)
-                : Node(line), name(std::move(name)), type_params(std::move(t_params)),
+                        std::vector<std::unique_ptr<AttributeDef>> attrs, std::vector<std::unique_ptr<MethodDef>> meths, int line, int col = 0)
+                : Node(line, col), name(std::move(name)), type_params(std::move(t_params)),
                     parent_name(std::move(p_name)), parent_args(std::move(p_args)),
                     attributes(std::move(attrs)), methods(std::move(meths)) {}
 
@@ -254,8 +255,8 @@ public:
     std::vector<Parameter> params;
     std::string return_type;
 
-    ProtocolMethodSig(std::string name, std::vector<Parameter> params, std::string ret_type, int line)
-        : Node(line), name(std::move(name)), params(std::move(params)), return_type(std::move(ret_type)) {}
+    ProtocolMethodSig(std::string name, std::vector<Parameter> params, std::string ret_type, int line, int col = 0)
+        : Node(line, col), name(std::move(name)), params(std::move(params)), return_type(std::move(ret_type)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -267,8 +268,8 @@ public:
     std::vector<std::unique_ptr<ProtocolMethodSig>> methods;
 
     ProtocolDef(std::string name, std::string parent_name,
-                std::vector<std::unique_ptr<ProtocolMethodSig>> methods, int line)
-        : Node(line), name(std::move(name)), parent_name(std::move(parent_name)),
+                std::vector<std::unique_ptr<ProtocolMethodSig>> methods, int line, int col = 0)
+        : Node(line, col), name(std::move(name)), parent_name(std::move(parent_name)),
           methods(std::move(methods)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
@@ -279,8 +280,8 @@ public:
     std::string type_name;
     std::vector<std::unique_ptr<Expr>> args;
 
-    NewExpr(std::string type, std::vector<std::unique_ptr<Expr>> args, int line)
-        : Expr(line), type_name(std::move(type)), args(std::move(args)) {}
+    NewExpr(std::string type, std::vector<std::unique_ptr<Expr>> args, int line, int col = 0)
+        : Expr(line, col), type_name(std::move(type)), args(std::move(args)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -290,8 +291,8 @@ public:
     std::unique_ptr<Expr> object;
     std::string member_name;
 
-    MemberAccess(std::unique_ptr<Expr> obj, std::string member, int line)
-        : Expr(line), object(std::move(obj)), member_name(std::move(member)) {}
+    MemberAccess(std::unique_ptr<Expr> obj, std::string member, int line, int col = 0)
+        : Expr(line, col), object(std::move(obj)), member_name(std::move(member)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -302,15 +303,15 @@ public:
     std::string method_name;
     std::vector<std::unique_ptr<Expr>> args;
 
-    MethodCall(std::unique_ptr<Expr> obj, std::string method, std::vector<std::unique_ptr<Expr>> args, int line)
-        : Expr(line), object(std::move(obj)), method_name(std::move(method)), args(std::move(args)) {}
+    MethodCall(std::unique_ptr<Expr> obj, std::string method, std::vector<std::unique_ptr<Expr>> args, int line, int col = 0)
+        : Expr(line, col), object(std::move(obj)), method_name(std::move(method)), args(std::move(args)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
 class SelfRef : public Expr {
 public:
-    SelfRef(int line) : Expr(line) {}
+    SelfRef(int line, int col = 0) : Expr(line, col) {}
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
@@ -318,8 +319,8 @@ class BaseCall : public Expr {
 public:
     std::vector<std::unique_ptr<Expr>> args;
 
-    BaseCall(std::vector<std::unique_ptr<Expr>> args, int line)
-        : Expr(line), args(std::move(args)) {}
+    BaseCall(std::vector<std::unique_ptr<Expr>> args, int line, int col = 0)
+        : Expr(line, col), args(std::move(args)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -329,8 +330,8 @@ public:
     std::unique_ptr<Expr> expression;
     std::string type_name;
 
-    IsExpr(std::unique_ptr<Expr> expr, std::string type, int line)
-        : Expr(line), expression(std::move(expr)), type_name(std::move(type)) {}
+    IsExpr(std::unique_ptr<Expr> expr, std::string type, int line, int col = 0)
+        : Expr(line, col), expression(std::move(expr)), type_name(std::move(type)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -340,8 +341,8 @@ public:
     std::unique_ptr<Expr> expression;
     std::string type_name;
 
-    AsExpr(std::unique_ptr<Expr> expr, std::string type, int line)
-        : Expr(line), expression(std::move(expr)), type_name(std::move(type)) {}
+    AsExpr(std::unique_ptr<Expr> expr, std::string type, int line, int col = 0)
+        : Expr(line, col), expression(std::move(expr)), type_name(std::move(type)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -350,8 +351,8 @@ class VectorLiteral : public Expr {
 public:
     std::vector<std::unique_ptr<Expr>> elements;
 
-    VectorLiteral(std::vector<std::unique_ptr<Expr>> elements, int line)
-        : Expr(line), elements(std::move(elements)) {}
+    VectorLiteral(std::vector<std::unique_ptr<Expr>> elements, int line, int col = 0)
+        : Expr(line, col), elements(std::move(elements)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -362,8 +363,8 @@ public:
     std::string variable_name;
     std::unique_ptr<Expr> iterable;
 
-    VectorComprehension(std::unique_ptr<Expr> gen, std::string var, std::unique_ptr<Expr> iter, int line)
-        : Expr(line), generator(std::move(gen)), variable_name(std::move(var)), iterable(std::move(iter)) {}
+    VectorComprehension(std::unique_ptr<Expr> gen, std::string var, std::unique_ptr<Expr> iter, int line, int col = 0)
+        : Expr(line, col), generator(std::move(gen)), variable_name(std::move(var)), iterable(std::move(iter)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -375,8 +376,8 @@ public:
     std::unique_ptr<Expr> iterable;
     std::unique_ptr<Expr> filter;
 
-    VectorComprehensionFilter(std::unique_ptr<Expr> gen, std::string var, std::unique_ptr<Expr> iter, std::unique_ptr<Expr> fil, int line)
-        : Expr(line), generator(std::move(gen)), variable_name(std::move(var)), iterable(std::move(iter)), filter(std::move(fil)) {}
+    VectorComprehensionFilter(std::unique_ptr<Expr> gen, std::string var, std::unique_ptr<Expr> iter, std::unique_ptr<Expr> fil, int line, int col = 0)
+        : Expr(line, col), generator(std::move(gen)), variable_name(std::move(var)), iterable(std::move(iter)), filter(std::move(fil)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -386,8 +387,8 @@ public:
     std::unique_ptr<Expr> vector;
     std::unique_ptr<Expr> index;
 
-    VectorIndex(std::unique_ptr<Expr> vec, std::unique_ptr<Expr> idx, int line)
-        : Expr(line), vector(std::move(vec)), index(std::move(idx)) {}
+    VectorIndex(std::unique_ptr<Expr> vec, std::unique_ptr<Expr> idx, int line, int col = 0)
+        : Expr(line, col), vector(std::move(vec)), index(std::move(idx)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
@@ -406,28 +407,28 @@ public:
     std::vector<LetBinding> bindings;
     std::unique_ptr<Expr> body;
 
-    LetExpr(std::vector<LetBinding> b, std::unique_ptr<Expr> body, int line)
-        : Expr(line), bindings(std::move(b)), body(std::move(body)) {}
+    LetExpr(std::vector<LetBinding> b, std::unique_ptr<Expr> body, int line, int col = 0)
+        : Expr(line, col), bindings(std::move(b)), body(std::move(body)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
-// Una función anónima: (x: Number, y: Number): Number => x + y
-// Almacena params, tipo de retorno opcional, y la expresión cuerpo.
-// Durante el análisis semántico se transpila a un TypeDef anónimo + NewExpr.
+// Una funcion anonima: (x: Number, y: Number): Number => x + y
+// Almacena params, tipo de retorno opcional, y la expresion cuerpo.
+// Durante el analisis semantico se transpila a un TypeDef anonimo + NewExpr.
 class LambdaExpr : public Expr {
 public:
     std::vector<Parameter> params;
-    std::string return_type; // Opcional, "" si no está anotado
+    std::string return_type; // Opcional, "" si no esta anotado
     std::unique_ptr<Expr> body;
 
-    // Llenados por SemanticAnalyzer durante la transpilación
+    // Llenados por SemanticAnalyzer durante la transpilacion
     std::string generated_type_name;        // ej. "_Lambda_0"
     std::vector<std::string> captured_vars; // nombres de variables del entorno capturadas
 
     LambdaExpr(std::vector<Parameter> params, std::string return_type,
-               std::unique_ptr<Expr> body, int line)
-        : Expr(line), params(std::move(params)),
+               std::unique_ptr<Expr> body, int line, int col = 0)
+        : Expr(line, col), params(std::move(params)),
           return_type(std::move(return_type)), body(std::move(body)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
@@ -441,8 +442,8 @@ public:
     std::unique_ptr<Expr> global_expression;
 
     Program(std::vector<std::unique_ptr<TypeDef>> t, std::vector<std::unique_ptr<ProtocolDef>> p,
-            std::vector<std::unique_ptr<FuncDef>> f, std::unique_ptr<Expr> glob, int line)
-        : Node(line), types(std::move(t)), protocols(std::move(p)),
+            std::vector<std::unique_ptr<FuncDef>> f, std::unique_ptr<Expr> glob, int line, int col = 0)
+        : Node(line, col), types(std::move(t)), protocols(std::move(p)),
           functions(std::move(f)), global_expression(std::move(glob)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }

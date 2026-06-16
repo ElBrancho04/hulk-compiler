@@ -13,6 +13,9 @@
 extern Program* root;
 extern FILE* yyin;
 extern int yyparse();
+extern int lexical_errors_count;
+extern int column_number;
+extern int line_number;
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -29,19 +32,26 @@ int main(int argc, char* argv[]) {
     yyin = source;
 
     // Parse.
-    if (yyparse() != 0 || root == nullptr) {
-        std::cerr << "Error de sintaxis.\n";
-        std::fclose(source);
+    int parse_result = yyparse();
+    std::fclose(source);
+
+    // If the lexer reported any lexical errors, exit with code 1.
+    if (lexical_errors_count > 0) {
+        std::cerr << "Lexical errors detected: " << lexical_errors_count << "\n";
+        return 1;
+    }
+
+    if (parse_result != 0 || root == nullptr) {
+        // Syntactic error — the parser already printed the error message.
         return 2;
     }
-    std::fclose(source);
 
     // Semantic analysis.
     try {
         SemanticAnalyzer analyzer;
         analyzer.analyze(*root);
-    } catch (const SemanticError& e) {
-        std::cerr << e.what() << "\n";
+    } catch (const SemanticError&) {
+        // analyze() already printed all errors to stderr.
         delete root;
         return 3;
     }
