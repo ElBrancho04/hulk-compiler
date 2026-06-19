@@ -32,6 +32,20 @@ struct TypeInfo {
           methods(std::move(methods)) {}
 };
 
+struct ProtocolInfo {
+    std::string name;
+    std::string parent;
+    std::unordered_map<std::string, MethodSig> methods;
+
+    ProtocolInfo() = default;
+    ProtocolInfo(std::string name,
+                 std::string parent,
+                 std::unordered_map<std::string, MethodSig> methods = {})
+        : name(std::move(name)),
+          parent(std::move(parent)),
+          methods(std::move(methods)) {}
+};
+
 class TypeTable {
 public:
     TypeTable();
@@ -39,6 +53,10 @@ public:
     void register_type(TypeInfo type);
     bool has_type(const std::string& name) const;
     const TypeInfo& get_type(const std::string& name) const;
+
+    void register_protocol(ProtocolInfo protocol);
+    bool has_protocol(const std::string& name) const;
+    const ProtocolInfo& get_protocol(const std::string& name) const;
 
     bool conforms_to(const std::string& derived, const std::string& target) const;
     std::string lowest_common_ancestor(const std::string& a, const std::string& b) const;
@@ -55,6 +73,7 @@ private:
     std::unordered_map<std::string, TypeInfo> types_;
     std::unordered_set<std::string> final_types_;
     std::unordered_set<std::string> synthetic_types_;
+    std::unordered_map<std::string, ProtocolInfo> protocols_;
 
     void register_builtin_types();
     static bool parse_container_type(const std::string& type_name,
@@ -62,6 +81,12 @@ private:
                                      std::string* element_out);
     bool is_synthetic_type(const std::string& type_name) const;
     void ensure_element_type(const std::string& element_type);
+    bool type_has_methods_for_protocol(const std::string& type_name,
+                                      const ProtocolInfo& protocol) const;
+    static bool conforms_with_variance(const MethodSig& derived,
+                                       const MethodSig& protocol_sig,
+                                       const TypeTable& table);
+    std::unordered_map<std::string, MethodSig> get_all_protocol_methods(const std::string& protocol_name) const;
 };
 
 #endif

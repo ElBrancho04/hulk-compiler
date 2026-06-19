@@ -108,9 +108,8 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
         std::vector<std::string> ctor_params;
         ctor_params.reserve(type_def->type_params.size());
         for (const auto& param : type_def->type_params) {
-            require_annotation(param.type_annotation, type_def->line,
-                              "parámetro de constructor en tipo " + name + ": " + param.name);
-            ctor_params.push_back(param.type_annotation);
+            const std::string pt = param.type_annotation.empty() ? kObjectType : param.type_annotation;
+            ctor_params.push_back(pt);
         }
         type_constructors_[name] = std::move(ctor_params);
 
@@ -138,9 +137,8 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
             std::vector<std::string> param_types;
             param_types.reserve(method->params.size());
             for (const auto& param : method->params) {
-                require_annotation(param.type_annotation, method->line,
-                                  "parámetro de método " + method->name + ": " + param.name);
-                param_types.push_back(param.type_annotation);
+                const std::string pt = param.type_annotation.empty() ? kObjectType : param.type_annotation;
+                param_types.push_back(pt);
             }
             methods.emplace(method->name, MethodSig{std::move(param_types), method->return_type});
         }
@@ -188,9 +186,8 @@ void SemanticAnalyzer::pass2_register_functions(Program& program) {
         std::vector<std::string> param_types;
         param_types.reserve(func_def->params.size());
         for (const auto& param : func_def->params) {
-            require_annotation(param.type_annotation, func_def->line,
-                              "parámetro de función " + func_def->name + ": " + param.name);
-            param_types.push_back(param.type_annotation);
+            const std::string pt = param.type_annotation.empty() ? kObjectType : param.type_annotation;
+            param_types.push_back(pt);
         }
         functions_.emplace(func_def->name, FunctionSig{std::move(param_types), func_def->return_type});
     }
@@ -226,7 +223,7 @@ void SemanticAnalyzer::register_protocols(const std::vector<std::unique_ptr<Prot
         if (!proto) {
             continue;
         }
-        if (protocols_.count(proto->name) > 0) {
+        if (type_table_.has_protocol(proto->name)) {
             throw SemanticError(proto->line, "protocolo duplicado: " + proto->name);
         }
 
@@ -255,7 +252,7 @@ void SemanticAnalyzer::register_protocols(const std::vector<std::unique_ptr<Prot
             info.methods.emplace(method->name, MethodSig{std::move(param_types), method->return_type});
         }
 
-        protocols_.emplace(info.name, std::move(info));
+        type_table_.register_protocol(std::move(info));
     }
 }
 
@@ -321,6 +318,11 @@ void SemanticAnalyzer::ensure_type_registered(const std::string& type_name, int 
             throw SemanticError(line, "tipo elemento desconocido en Vector: " + element);
         }
         type_table_.ensure_vector_type(element);
+    } else if (type_table_.has_protocol(type_name)) {
+        // Protocolo registrado, tipo válido
+        return;
+    } else if (!type_table_.has_type(type_name)) {
+        throw SemanticError(line, "tipo no registrado: " + type_name);
     }
 }
 
@@ -501,6 +503,10 @@ std::string SemanticAnalyzer::visit(VarRef& node) {
 }
 
 std::string SemanticAnalyzer::visit(AssignExpr& node) {
+    // self no puede ser objetivo de asignación
+    if (node.name == "self") {
+        throw SemanticError(node.line, "'self' no es un objetivo de asignación válido");
+    }
     const std::string var_type = symbols_.lookup(node.name, node.line);
     const std::string value_type = require_inferred_type(analyze_expr(node.value.get()), node.line, "asignación");
     ensure_conforms(value_type, var_type, node.line, "asignación");
@@ -629,10 +635,9 @@ std::string SemanticAnalyzer::visit(FuncDef& node) {
     context_.enter_function(node.name);
     symbols_.enter_scope();
     for (const auto& param : node.params) {
-        require_annotation(param.type_annotation, node.line,
-                          "parámetro de función " + node.name + ": " + param.name);
-        ensure_type_registered(param.type_annotation, node.line);
-        symbols_.define(param.name, param.type_annotation, node.line);
+        const std::string pt = param.type_annotation.empty() ? kObjectType : param.type_annotation;
+        ensure_type_registered(pt, node.line);
+        symbols_.define(param.name, pt, node.line);
     }
     const std::string body_type = require_inferred_type(analyze_expr(node.body.get()),
                                                        node.line,
@@ -689,12 +694,10 @@ std::string SemanticAnalyzer::visit(TypeDef& node) {
         std::vector<std::string> param_types;
         param_types.reserve(method->params.size());
         for (const auto& param : method->params) {
-            require_annotation(param.type_annotation, method->line,
-                              "parámetro de método " + method->name + ": " + param.name);
-            ensure_type_registered(param.type_annotation, method->line);
-            const std::string param_type = param.type_annotation;
-            symbols_.define(param.name, param_type, method->line);
-            param_types.push_back(param_type);
+            const std::string pt = param.type_annotation.empty() ? kObjectType : param.type_annotation;
+            ensure_type_registered(pt, method->line);
+            symbols_.define(param.name, pt, method->line);
+            param_types.push_back(pt);
         }
 
         const std::string body_type = require_inferred_type(analyze_expr(method->body.get()),
@@ -772,6 +775,27 @@ std::string SemanticAnalyzer::visit(NewExpr& node) {
 
 std::string SemanticAnalyzer::visit(MemberAccess& node) {
     const std::string object_type = analyze_expr(node.object.get());
+
+    // Verificar encapsulación: atributos son privados al tipo que los define.
+    // Solo se puede acceder a un atributo desde un método del mismo tipo.
+    if (!object_type.empty() && type_table_.has_type(object_type)) {
+        // Verificar si el miembro es un atributo
+        bool is_attribute = false;
+        auto inferred_it = analyzed_types_.find(object_type);
+        if (inferred_it != analyzed_types_.end()) {
+            is_attribute = inferred_it->second.attributes.count(node.member_name) > 0;
+        }
+        if (!is_attribute) {
+            // Buscar en el TypeTable registrado (puede heredar atributos)
+            const TypeInfo& info = type_table_.get_type(object_type);
+            is_attribute = info.attributes.count(node.member_name) > 0;
+        }
+        // Si es un atributo, solo se permite acceso desde el mismo tipo
+        if (is_attribute && context_.current_type != object_type) {
+            throw SemanticError(node.line, "el atributo '" + node.member_name + "' es privado en el tipo " + object_type);
+        }
+    }
+
     return resolve_attribute_type(object_type, node.member_name, node.line);
 }
 

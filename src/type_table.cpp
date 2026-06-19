@@ -26,6 +26,36 @@ void TypeTable::register_builtin_types() {
     types_.emplace(kNumberType, TypeInfo{kNumberType, kObjectType});
     types_.emplace(kStringType, TypeInfo{kStringType, kObjectType});
     types_.emplace(kBooleanType, TypeInfo{kBooleanType, kObjectType});
+
+    // Register base Iterable protocol: next():Boolean, current():Object
+    ProtocolInfo iterable;
+    iterable.name = "Iterable";
+    iterable.parent = "";
+    iterable.methods.emplace("next", MethodSig({}, kBooleanType));
+    iterable.methods.emplace("current", MethodSig({}, kObjectType));
+    protocols_.emplace("Iterable", std::move(iterable));
+}
+
+void TypeTable::register_protocol(ProtocolInfo protocol) {
+    if (protocol.name.empty()) {
+        throw std::runtime_error("TypeTable: el nombre del protocolo no puede ser vacío.");
+    }
+    if (protocols_.count(protocol.name) > 0) {
+        throw std::runtime_error("TypeTable: protocolo duplicado: " + protocol.name);
+    }
+    protocols_.emplace(protocol.name, std::move(protocol));
+}
+
+bool TypeTable::has_protocol(const std::string& name) const {
+    return protocols_.count(name) > 0;
+}
+
+const ProtocolInfo& TypeTable::get_protocol(const std::string& name) const {
+    auto it = protocols_.find(name);
+    if (it == protocols_.end()) {
+        throw std::runtime_error("TypeTable: protocolo inexistente: " + name);
+    }
+    return it->second;
 }
 
 void TypeTable::register_type(TypeInfo type) {
@@ -74,16 +104,64 @@ bool TypeTable::conforms_to(const std::string& derived, const std::string& targe
     std::string derived_element;
     std::string target_element;
 
+    // Handle synthetic container types (Vector<T>, Iterable<T>) first,
+    // before protocol checking, since Iterable<T> is both a container type
+    // and a protocol.
     if (is_vector_type(derived, &derived_element)) {
         if (is_vector_type(target, &target_element))   return conforms_to(derived_element, target_element);
         if (is_iterable_type(target, &target_element)) return conforms_to(derived_element, target_element);
-        return false;
+        if (has_protocol(target)) {
+            // Let it fall through to protocol checking!
+        } else {
+            return false;
+        }
     }
     if (is_iterable_type(derived, &derived_element)) {
         if (is_iterable_type(target, &target_element)) return conforms_to(derived_element, target_element);
-        return false;
+        if (has_protocol(target)) {
+            // Let it fall through to protocol checking!
+        } else {
+            return false;
+        }
     }
     if (is_vector_type(target) || is_iterable_type(target)) {
+        return false;
+    }
+
+    // --- Target es un protocolo: conformidad estructural ---
+    if (has_protocol(target)) {
+        const ProtocolInfo& proto = get_protocol(target);
+        // derived puede ser un tipo nominal o un protocolo
+        if (has_type(derived)) {
+            return type_has_methods_for_protocol(derived, proto);
+        }
+        if (has_protocol(derived)) {
+            // Si P extends Q (directa o transitivamente), entonces P <= Q
+            const ProtocolInfo& derived_proto = get_protocol(derived);
+            const std::string* current_parent = &derived_proto.parent;
+            while (!current_parent->empty()) {
+                if (*current_parent == target) {
+                    return true;
+                }
+                if (!has_protocol(*current_parent)) {
+                    break;
+                }
+                current_parent = &get_protocol(*current_parent).parent;
+            }
+            // Verificación estructural con variancia: que derived tenga todos los métodos de target (incluyendo heredados)
+            auto target_methods = get_all_protocol_methods(target);
+            auto derived_methods = get_all_protocol_methods(derived);
+            for (const auto& [mname, msig] : target_methods) {
+                auto it = derived_methods.find(mname);
+                if (it == derived_methods.end()) {
+                    return false;
+                }
+                if (!conforms_with_variance(it->second, msig, *this)) {
+                    return false;
+                }
+            }
+            return true;
+        }
         return false;
     }
 
@@ -102,6 +180,58 @@ bool TypeTable::conforms_to(const std::string& derived, const std::string& targe
         current = &get_type(current->parent);
     }
     return false;
+}
+
+bool TypeTable::type_has_methods_for_protocol(const std::string& type_name,
+                                              const ProtocolInfo& protocol) const {
+    // Recorrer la jerarquía completa del tipo, incluyendo métodos heredados de todos los protocolos base
+    auto all_proto_methods = get_all_protocol_methods(protocol.name);
+    for (const auto& [mname, msig] : all_proto_methods) {
+        bool found = false;
+        const TypeInfo* current = &get_type(type_name);
+        do {
+            auto it = current->methods.find(mname);
+            if (it != current->methods.end()) {
+                // Verificar con variancia
+                if (conforms_with_variance(it->second, msig, *this)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (current->parent.empty() || !has_type(current->parent)) {
+                break;
+            }
+            current = &get_type(current->parent);
+        } while (true);
+
+        if (!found) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool TypeTable::conforms_with_variance(const MethodSig& derived,
+                                       const MethodSig& protocol_sig,
+                                       const TypeTable& table) {
+    // Args contravariantes: protocol.param <= derived.param
+    if (derived.param_types.size() != protocol_sig.param_types.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < derived.param_types.size(); ++i) {
+        const std::string& p = protocol_sig.param_types[i];
+        const std::string& d = derived.param_types[i];
+        if (p != d && !table.conforms_to(p, d)) {
+            return false;
+        }
+    }
+    // Return covariante: derived.return <= protocol.return
+    const std::string& derived_ret = derived.return_type.empty() ? kObjectType : derived.return_type;
+    const std::string& protocol_ret = protocol_sig.return_type.empty() ? kObjectType : protocol_sig.return_type;
+    if (derived_ret != protocol_ret && !table.conforms_to(derived_ret, protocol_ret)) {
+        return false;
+    }
+    return true;
 }
 
 std::string TypeTable::lowest_common_ancestor(const std::string& a, const std::string& b) const {
@@ -165,6 +295,8 @@ void TypeTable::ensure_vector_type(const std::string& element_type) {
     TypeInfo info{type_name, kObjectType};
     info.methods.emplace("size", MethodSig({}, kNumberType));
     info.methods.emplace("iter", MethodSig({}, make_iterable_type(element_type)));
+    info.methods.emplace("next", MethodSig({}, kBooleanType));
+    info.methods.emplace("current", MethodSig({}, element_type));
     register_type(std::move(info));
     synthetic_types_.insert(type_name);
 }
@@ -177,6 +309,19 @@ void TypeTable::ensure_iterable_type(const std::string& element_type) {
 
     ensure_element_type(element_type);
 
+    // Register Iterable<T> as a protocol extending Iterable: current(): T
+    if (!has_protocol(type_name)) {
+        ProtocolInfo proto;
+        proto.name = type_name;
+        proto.parent = "Iterable";
+        proto.methods.emplace("next", MethodSig({}, kBooleanType));
+        proto.methods.emplace("current", MethodSig({}, element_type));
+        // Use direct map insertion to avoid duplicate check with register_protocol
+        // since the protocol name follows the Iterable<T> convention
+        protocols_.emplace(type_name, std::move(proto));
+    }
+
+    // Also register as TypeInfo for method resolution (next, current)
     TypeInfo info{type_name, kObjectType};
     info.methods.emplace("next", MethodSig({}, kBooleanType));
     info.methods.emplace("current", MethodSig({}, element_type));
@@ -235,4 +380,17 @@ void TypeTable::ensure_element_type(const std::string& element_type) {
     if (!has_type(element_type)) {
         throw std::runtime_error("TypeTable: tipo elemento inexistente: " + element_type);
     }
+}
+
+std::unordered_map<std::string, MethodSig> TypeTable::get_all_protocol_methods(const std::string& protocol_name) const {
+    std::unordered_map<std::string, MethodSig> all_methods;
+    std::string current = protocol_name;
+    while (!current.empty() && has_protocol(current)) {
+        const ProtocolInfo& proto = get_protocol(current);
+        for (const auto& [mname, msig] : proto.methods) {
+            all_methods.emplace(mname, msig);
+        }
+        current = proto.parent;
+    }
+    return all_methods;
 }

@@ -17,12 +17,6 @@ struct FunctionSig {
     std::string return_type;
 };
 
-struct ProtocolInfo {
-    std::string name;
-    std::string parent;
-    std::unordered_map<std::string, MethodSig> methods;
-};
-
 class SemanticAnalyzer : public Visitor<std::string> {
 public:
     SemanticAnalyzer();
@@ -69,7 +63,6 @@ private:
     SymbolTable symbols_;
     SemanticContext context_;
     std::unordered_map<std::string, FunctionSig> functions_;
-    std::unordered_map<std::string, ProtocolInfo> protocols_;
     std::unordered_map<std::string, std::vector<std::string>> type_constructors_;
     std::unordered_map<std::string, TypeInfo> analyzed_types_;
     int lambda_counter_ = 0;
