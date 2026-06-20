@@ -1,0 +1,12 @@
+// Integration test: macros (Fase 6)
+def double(x) => x + x;
+def square(x) => x * x;
+def add(a, b) => a + b;
+def apply_twice(*body) => { body; body; };
+
+{
+    print(double(21));
+    print(square(7));
+    print(add(3, 4));
+    print("macros OK");
+};

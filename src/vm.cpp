@@ -120,6 +120,7 @@ void VM::execute(BytecodeProgram& program) {
             case OpCode::ASSIGN: {
                 Value value = popValue();
                 current_env_->assign(inst.name, value);
+                stack_.push_back(value);  // := is an expression returning the assigned value
                 break;
             }
             case OpCode::POP: {

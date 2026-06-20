@@ -23,6 +23,7 @@ ADD_FLEX_BISON_DEPENDENCY(MyLexer MyParser)
 add_executable(hulk
     src/main.cpp
     src/code_generator.cpp
+    src/macro_expander.cpp
     src/semantic_analyzer.cpp
     src/semantic_utils.cpp
     src/serialize.cpp
@@ -100,4 +101,9 @@ add_executable(functor_smoke_test
     src/type_table.cpp
     src/code_generator.cpp
     src/vm.cpp
+)
+
+add_executable(macro_expander_test
+    tests/macro_expander_test.cpp
+    src/macro_expander.cpp
 )

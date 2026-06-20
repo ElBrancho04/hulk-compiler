@@ -1,0 +1,15 @@
+// Integration test: match/case (Fase 6)
+function classify(x: Object) -> String =>
+    match (x) {
+        case Number: "number";
+        case String: "string";
+        case Boolean: "boolean";
+        default: "other";
+    };
+
+{
+    print(classify(42));
+    print(classify("hello"));
+    print(classify(true));
+    print("match OK");
+};

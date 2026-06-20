@@ -26,6 +26,7 @@ TEST_TARGETS=(
     "type_annotations_smoke_test"
     "runtime_test"
     "functor_smoke_test"
+    "macro_expander_test"
 )
 
 # Step 1: Build tests if needed
@@ -77,7 +78,42 @@ for target in "${TEST_TARGETS[@]}"; do
     fi
 done
 
-# Step 3: Summary
+# Step 3: Integration tests (.hulk files through full pipeline)
+echo ""
+echo -e "${YELLOW}=== Integration tests ===${NC}"
+echo ""
+
+HULK_BIN="${BUILD_DIR}/hulk"
+HULKVM_BIN="${BUILD_DIR}/hulk-vm"
+INTEGRATION_DIR="$(dirname "$0")"
+
+if [ ! -f "${HULK_BIN}" ] || [ ! -f "${HULKVM_BIN}" ]; then
+    echo -e "${YELLOW}SKIP${NC} integration tests: hulk or hulk-vm not found"
+else
+    run_integration() {
+        local test_file="$1"
+        local expected="$2"
+        TOTAL=$((TOTAL + 1))
+        local name
+        name="$(basename "${test_file}")"
+        local actual
+        actual=$("${HULK_BIN}" "${test_file}" 2>&1 && "${HULKVM_BIN}" compiled.asm 2>&1) || true
+        if echo "${actual}" | grep -qF "${expected}"; then
+            echo -e "[${GREEN}PASS${NC}] integration: ${name}"
+            PASSED=$((PASSED + 1))
+        else
+            echo -e "[${RED}FAIL${NC}] integration: ${name}"
+            echo "  Expected to contain: ${expected}"
+            echo "  Got: ${actual}" | head -5 | sed 's/^/    /'
+            FAILED=$((FAILED + 1))
+        fi
+    }
+
+    run_integration "${INTEGRATION_DIR}/test_macros.hulk" "macros OK"
+    run_integration "${INTEGRATION_DIR}/test_match.hulk" "match OK"
+    run_integration "${INTEGRATION_DIR}/test_full.hulk" ""
+fi
+
 echo ""
 echo -e "${YELLOW}=== Test Summary ===${NC}"
 echo -e "Total: ${TOTAL}"

@@ -6,6 +6,7 @@
 
 #include "ast.hpp"
 #include "code_generator.hpp"
+#include "macro_expander.hpp"
 #include "semantic_analyzer.hpp"
 #include "serialize.hpp"
 #include "vm.hpp"
@@ -43,6 +44,16 @@ int main(int argc, char* argv[]) {
 
     if (parse_result != 0 || root == nullptr) {
         // Syntactic error — the parser already printed the error message.
+        return 2;
+    }
+
+    // Macro expansion (before semantic analysis).
+    try {
+        MacroExpander expander;
+        expander.expand(*root);
+    } catch (const std::exception& e) {
+        std::cerr << "(1,1) MACRO: " << e.what() << "\n";
+        delete root;
         return 2;
     }
 

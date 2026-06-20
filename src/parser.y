@@ -34,6 +34,7 @@ struct Definitions {
     std::vector<class TypeDef*>* types;
     std::vector<class ProtocolDef*>* protocols;
     std::vector<class FuncDef*>* functions;
+    std::vector<class MacroDef*>* macros;
 };
 
 // Helper para mover punteros a unique_ptr
@@ -78,6 +79,10 @@ std::vector<std::unique_ptr<T>> to_unique_vec(std::vector<T*>* src) {
     struct ProtocolBodyElements* protocol_body;
     struct InheritsInfo* inherits_info;
     struct Definitions* definitions;
+    class MacroDef* macro_ptr;
+    std::vector<class MacroDef*>* macro_list;
+    std::vector<MacroParam>* macro_param_list;
+    std::vector<MatchArm>* match_arm_list;
 }
 
 /* --- Declaracion de Tokens --- */
@@ -87,12 +92,16 @@ std::vector<std::unique_ptr<T>> to_unique_vec(std::vector<T*>* src) {
 %token TOK_FUNCTION TOK_TYPE TOK_INHERITS TOK_NEW TOK_IS TOK_AS
 %token TOK_PROTOCOL TOK_EXTENDS TOK_SELF TOK_BASE
 %token TOK_TRUE TOK_FALSE
+%token TOK_DEF TOK_MATCH TOK_CASE TOK_DEFAULT
 %token TOK_ARROW TOK_TYPE_ARROW TOK_ASSIGN TOK_EQ TOK_NEQ TOK_LEQ TOK_GEQ TOK_CONCAT TOK_DCONCAT
 
 /* --- Tipos No Terminales --- */
-%type <expr_ptr> expression assign_expr let_expr if_expr while_expr for_expr
+%type <expr_ptr> expression assign_expr let_expr if_expr while_expr for_expr match_expr
 %type <expr_ptr> or_expr and_expr not_expr comparison_expr concat_expr add_expr mul_expr pow_expr unary_expr
 %type <expr_ptr> postfix_expr primary_expr block_expr opt_vector_filter comp_expr
+%type <macro_ptr> macro_definition
+%type <macro_param_list> macro_params_list macro_params_not_empty
+%type <match_arm_list> match_arms
 %type <func_ptr> function_definition
 %type <type_ptr> type_definition
 %type <protocol_ptr> protocol_definition
@@ -133,6 +142,7 @@ program:
             to_unique_vec($1->types),
             to_unique_vec($1->protocols),
             to_unique_vec($1->functions),
+            to_unique_vec($1->macros),
             std::unique_ptr<Expr>($2),
             line_number,
             column_number
@@ -147,12 +157,14 @@ definition_list:
         $$ = new Definitions{
             new std::vector<TypeDef*>(),
             new std::vector<ProtocolDef*>(),
-            new std::vector<FuncDef*>()
+            new std::vector<FuncDef*>(),
+            new std::vector<MacroDef*>()
         };
     }
     | definition_list function_definition { $1->functions->push_back($2); $$ = $1; }
     | definition_list type_definition { $1->types->push_back($2); $$ = $1; }
     | definition_list protocol_definition { $1->protocols->push_back($2); $$ = $1; }
+    | definition_list macro_definition { $1->macros->push_back($2); $$ = $1; }
     ;
 
 function_definition:
@@ -160,6 +172,29 @@ function_definition:
     { $$ = new FuncDef($2, *$4, $6 ? $6 : "", std::unique_ptr<Expr>($8), line_number, column_number); delete $4; }
     | TOK_FUNCTION IDENTIFIER '(' params_list ')' opt_return_type block_expr opt_semicolon
     { $$ = new FuncDef($2, *$4, $6 ? $6 : "", std::unique_ptr<Expr>($7), line_number, column_number); delete $4; }
+    ;
+
+macro_definition:
+    TOK_DEF IDENTIFIER '(' macro_params_list ')' opt_return_type TOK_ARROW expression ';'
+    { $$ = new MacroDef($2, std::move(*$4), $6 ? $6 : "", std::unique_ptr<Expr>($8), line_number); delete $4; }
+    | TOK_DEF IDENTIFIER '(' macro_params_list ')' opt_return_type block_expr opt_semicolon
+    { $$ = new MacroDef($2, std::move(*$4), $6 ? $6 : "", std::unique_ptr<Expr>($7), line_number); delete $4; }
+    ;
+
+macro_params_list:
+    /* vacio */ { $$ = new std::vector<MacroParam>(); }
+    | macro_params_not_empty { $$ = $1; }
+    ;
+
+macro_params_not_empty:
+    IDENTIFIER opt_type_annotation
+    { $$ = new std::vector<MacroParam>(); $$->emplace_back($1, $2 ? $2 : ""); }
+    | '*' IDENTIFIER opt_type_annotation
+    { $$ = new std::vector<MacroParam>(); $$->emplace_back($2, $3 ? $3 : "", true); }
+    | macro_params_not_empty ',' IDENTIFIER opt_type_annotation
+    { $1->emplace_back($3, $4 ? $4 : ""); $$ = $1; }
+    | macro_params_not_empty ',' '*' IDENTIFIER opt_type_annotation
+    { $1->emplace_back($4, $5 ? $5 : "", true); $$ = $1; }
     ;
 
 type_definition:
@@ -286,7 +321,25 @@ while_expr:
 for_expr:
     TOK_FOR '(' IDENTIFIER TOK_IN expression ')' expression
     { $$ = new ForExpr($3, std::unique_ptr<Expr>($5), std::unique_ptr<Expr>($7), line_number, column_number); }
+    | match_expr { $$ = $1; }
+    ;
+
+match_expr:
+    TOK_MATCH '(' expression ')' '{' match_arms TOK_DEFAULT ':' expression ';' '}'
+    {
+        $$ = new MatchExpr(std::unique_ptr<Expr>($3), std::move(*$6), std::unique_ptr<Expr>($9), line_number);
+        delete $6;
+    }
     | or_expr { $$ = $1; }
+    ;
+
+match_arms:
+    /* vacio */ { $$ = new std::vector<MatchArm>(); }
+    | match_arms TOK_CASE IDENTIFIER ':' expression ';'
+    {
+        $1->emplace_back($3, std::unique_ptr<Expr>($5), line_number);
+        $$ = $1;
+    }
     ;
 
 or_expr:
@@ -358,6 +411,7 @@ primary_expr:
     | TOK_FALSE { $$ = new BoolLiteral(false, line_number, column_number); }
     | IDENTIFIER { $$ = new VarRef($1, line_number, column_number); }
     | IDENTIFIER '(' opt_expression_list ')' { $$ = new FuncCall($1, to_unique_vec($3), line_number, column_number); }
+    | IDENTIFIER '(' opt_expression_list ')' block_expr { $$ = new MacroInvoke($1, to_unique_vec($3), std::unique_ptr<Expr>($5), line_number, column_number); }
     | TOK_NEW IDENTIFIER '(' opt_expression_list ')' { $$ = new NewExpr($2, to_unique_vec($4), line_number, column_number); }
     | TOK_BASE '(' opt_expression_list ')' { $$ = new BaseCall(to_unique_vec($3), line_number, column_number); }
     | TOK_SELF { $$ = new SelfRef(line_number, column_number); }

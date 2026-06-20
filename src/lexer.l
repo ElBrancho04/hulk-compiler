@@ -25,6 +25,7 @@ DIGIT           [0-9]
 LETTER          [a-zA-Z]
 NUMBER          {DIGIT}+(\.{DIGIT}+)?|\.{DIGIT}+
 IDENTIFIER      {LETTER}({LETTER}|{DIGIT}|_)*
+DOLLAR_ID       "$"{LETTER}({LETTER}|{DIGIT}|_)*
 
 %%
 
@@ -54,6 +55,11 @@ IDENTIFIER      {LETTER}({LETTER}|{DIGIT}|_)*
 "true"                  { column_number += yyleng; return TOK_TRUE; }
 "false"                 { column_number += yyleng; return TOK_FALSE; }
 
+"def"                   { column_number += yyleng; return TOK_DEF; }
+"match"                 { column_number += yyleng; return TOK_MATCH; }
+"case"                  { column_number += yyleng; return TOK_CASE; }
+"default"               { column_number += yyleng; return TOK_DEFAULT; }
+
 "=>"                    { column_number += yyleng; return TOK_ARROW; }
 "->"                    { column_number += yyleng; return TOK_TYPE_ARROW; }
 ":="                    { column_number += yyleng; return TOK_ASSIGN; }
@@ -64,6 +70,7 @@ IDENTIFIER      {LETTER}({LETTER}|{DIGIT}|_)*
 "@@"                    { column_number += yyleng; return TOK_DCONCAT; }
 "@"                     { column_number += yyleng; return TOK_CONCAT; }
 
+{DOLLAR_ID}             { column_number += yyleng; yylval.str_val = strdup(yytext); return IDENTIFIER; }
 {IDENTIFIER}            { column_number += yyleng; yylval.str_val = strdup(yytext); return IDENTIFIER; }
 {NUMBER}                { column_number += yyleng; yylval.float_val = atof(yytext); return NUMBER; }
 

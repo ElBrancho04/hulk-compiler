@@ -1,0 +1,2 @@
+#!/bin/bash
+./hulk-vm compiled.asm
