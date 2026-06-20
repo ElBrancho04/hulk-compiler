@@ -39,10 +39,11 @@ private:
     std::unique_ptr<Expr> clone(const Expr* expr) const;
 
     // --- Substitution: replace VarRefs named in `subs` with clones of their replacements.
-    //     Also replaces $name VarRefs with gensym names. ---
+    //     Also replaces $name VarRefs with fresh gensym names using `prefix`. ---
     std::unique_ptr<Expr> substitute(std::unique_ptr<Expr> expr,
                                      const std::unordered_map<std::string, const Expr*>& subs,
-                                     const std::unordered_map<std::string, std::string>& gensyms);
+                                     std::unordered_map<std::string, std::string>& gensyms,
+                                     const std::string& prefix);
 
     std::string fresh(const std::string& hint);
 };

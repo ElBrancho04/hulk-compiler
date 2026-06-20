@@ -237,7 +237,7 @@ std::unique_ptr<Expr> MacroExpander::expand_macro(MacroInvoke& inv) {
 
     // Clone the macro body and substitute.
     auto body_clone = clone(def->body.get());
-    return substitute(std::move(body_clone), subs, gensyms);
+    return substitute(std::move(body_clone), subs, gensyms, prefix);
 }
 
 // ============================================================
@@ -376,152 +376,161 @@ std::unique_ptr<Expr> MacroExpander::clone(const Expr* e) const {
 
 // ============================================================
 // Substitution: replace VarRef(param) → clone(arg)
-//               rename $name → gensym
+//               rename $name → fresh gensym (created on demand)
 // ============================================================
 
 std::unique_ptr<Expr> MacroExpander::substitute(
         std::unique_ptr<Expr> expr,
         const std::unordered_map<std::string, const Expr*>& subs,
-        const std::unordered_map<std::string, std::string>& gensyms) {
+        std::unordered_map<std::string, std::string>& gensyms,
+        const std::string& prefix) {
 
     if (!expr) return nullptr;
 
-    // VarRef: check for substitution or $placeholder rename.
+#define SUB(e) substitute(std::move(e), subs, gensyms, prefix)
+
+    // VarRef: check for $placeholder rename first, then param substitution.
     if (auto* vr = dynamic_cast<VarRef*>(expr.get())) {
-        // $name hygiene: rename to gensym.
         if (!vr->name.empty() && vr->name[0] == '$') {
             std::string key = vr->name.substr(1);
-            auto git = gensyms.find(key);
-            if (git != gensyms.end()) {
-                return std::make_unique<VarRef>(git->second, vr->line, vr->col);
-            }
-            // Not pre-declared — create a new gensym entry on the fly.
-            // (Callers pass gensyms by const ref; we just keep the $ as-is
-            //  to signal "not yet resolved" — the expander will handle it.)
+            auto& slot = gensyms[key];
+            if (slot.empty()) slot = prefix + key;
+            return std::make_unique<VarRef>(slot, vr->line, vr->col);
         }
-        // Regular param substitution.
         auto it = subs.find(vr->name);
-        if (it != subs.end()) {
-            return clone(it->second);
-        }
+        if (it != subs.end()) return clone(it->second);
         return expr;
     }
 
-    // AssignExpr: also rename $name on the lhs.
+    // AssignExpr: rename $name on lhs too.
     if (auto* ae = dynamic_cast<AssignExpr*>(expr.get())) {
-        ae->value = substitute(std::move(ae->value), subs, gensyms);
+        ae->value = SUB(ae->value);
         if (!ae->name.empty() && ae->name[0] == '$') {
             std::string key = ae->name.substr(1);
-            auto git = gensyms.find(key);
-            if (git != gensyms.end()) ae->name = git->second;
+            auto& slot = gensyms[key];
+            if (slot.empty()) slot = prefix + key;
+            ae->name = slot;
         }
         return expr;
     }
 
     // Recurse into all compound nodes.
     if (auto* n = dynamic_cast<BinaryExpr*>(expr.get())) {
-        n->left  = substitute(std::move(n->left),  subs, gensyms);
-        n->right = substitute(std::move(n->right), subs, gensyms);
+        n->left  = SUB(n->left);
+        n->right = SUB(n->right);
         return expr;
     }
     if (auto* n = dynamic_cast<UnaryExpr*>(expr.get())) {
-        n->operand = substitute(std::move(n->operand), subs, gensyms);
+        n->operand = SUB(n->operand);
         return expr;
     }
     if (auto* n = dynamic_cast<BlockExpr*>(expr.get())) {
-        for (auto& e : n->expressions) e = substitute(std::move(e), subs, gensyms);
+        for (auto& e : n->expressions) e = SUB(e);
         return expr;
     }
     if (auto* n = dynamic_cast<LetExpr*>(expr.get())) {
-        for (auto& b : n->bindings)
-            if (b.initializer) b.initializer = substitute(std::move(b.initializer), subs, gensyms);
-        n->body = substitute(std::move(n->body), subs, gensyms);
+        for (auto& b : n->bindings) {
+            if (!b.name.empty() && b.name[0] == '$') {
+                std::string key = b.name.substr(1);
+                auto& slot = gensyms[key];
+                if (slot.empty()) slot = prefix + key;
+                b.name = slot;
+            }
+            if (b.initializer) b.initializer = SUB(b.initializer);
+        }
+        n->body = SUB(n->body);
         return expr;
     }
     if (auto* n = dynamic_cast<IfExpr*>(expr.get())) {
         for (auto& br : n->branches) {
-            br.condition = substitute(std::move(br.condition), subs, gensyms);
-            br.body      = substitute(std::move(br.body),      subs, gensyms);
+            br.condition = SUB(br.condition);
+            br.body      = SUB(br.body);
         }
-        n->else_body = substitute(std::move(n->else_body), subs, gensyms);
+        n->else_body = SUB(n->else_body);
         return expr;
     }
     if (auto* n = dynamic_cast<WhileExpr*>(expr.get())) {
-        n->condition = substitute(std::move(n->condition), subs, gensyms);
-        n->body      = substitute(std::move(n->body),      subs, gensyms);
+        n->condition = SUB(n->condition);
+        n->body      = SUB(n->body);
         return expr;
     }
     if (auto* n = dynamic_cast<ForExpr*>(expr.get())) {
-        n->iterable = substitute(std::move(n->iterable), subs, gensyms);
-        n->body     = substitute(std::move(n->body),     subs, gensyms);
+        if (!n->variable_name.empty() && n->variable_name[0] == '$') {
+            std::string key = n->variable_name.substr(1);
+            auto& slot = gensyms[key];
+            if (slot.empty()) slot = prefix + key;
+            n->variable_name = slot;
+        }
+        n->iterable = SUB(n->iterable);
+        n->body     = SUB(n->body);
         return expr;
     }
     if (auto* n = dynamic_cast<FuncCall*>(expr.get())) {
-        for (auto& a : n->args) a = substitute(std::move(a), subs, gensyms);
+        for (auto& a : n->args) a = SUB(a);
         return expr;
     }
     if (auto* n = dynamic_cast<NewExpr*>(expr.get())) {
-        for (auto& a : n->args) a = substitute(std::move(a), subs, gensyms);
+        for (auto& a : n->args) a = SUB(a);
         return expr;
     }
     if (auto* n = dynamic_cast<MemberAccess*>(expr.get())) {
-        n->object = substitute(std::move(n->object), subs, gensyms);
+        n->object = SUB(n->object);
         return expr;
     }
     if (auto* n = dynamic_cast<MethodCall*>(expr.get())) {
-        n->object = substitute(std::move(n->object), subs, gensyms);
-        for (auto& a : n->args) a = substitute(std::move(a), subs, gensyms);
+        n->object = SUB(n->object);
+        for (auto& a : n->args) a = SUB(a);
         return expr;
     }
     if (auto* n = dynamic_cast<BaseCall*>(expr.get())) {
-        for (auto& a : n->args) a = substitute(std::move(a), subs, gensyms);
+        for (auto& a : n->args) a = SUB(a);
         return expr;
     }
     if (auto* n = dynamic_cast<IsExpr*>(expr.get())) {
-        n->expression = substitute(std::move(n->expression), subs, gensyms);
+        n->expression = SUB(n->expression);
         return expr;
     }
     if (auto* n = dynamic_cast<AsExpr*>(expr.get())) {
-        n->expression = substitute(std::move(n->expression), subs, gensyms);
+        n->expression = SUB(n->expression);
         return expr;
     }
     if (auto* n = dynamic_cast<VectorLiteral*>(expr.get())) {
-        for (auto& e : n->elements) e = substitute(std::move(e), subs, gensyms);
+        for (auto& e : n->elements) e = SUB(e);
         return expr;
     }
     if (auto* n = dynamic_cast<VectorComprehension*>(expr.get())) {
-        n->generator = substitute(std::move(n->generator), subs, gensyms);
-        n->iterable  = substitute(std::move(n->iterable),  subs, gensyms);
+        n->generator = SUB(n->generator);
+        n->iterable  = SUB(n->iterable);
         return expr;
     }
     if (auto* n = dynamic_cast<VectorComprehensionFilter*>(expr.get())) {
-        n->generator = substitute(std::move(n->generator), subs, gensyms);
-        n->iterable  = substitute(std::move(n->iterable),  subs, gensyms);
-        n->filter    = substitute(std::move(n->filter),    subs, gensyms);
+        n->generator = SUB(n->generator);
+        n->iterable  = SUB(n->iterable);
+        n->filter    = SUB(n->filter);
         return expr;
     }
     if (auto* n = dynamic_cast<VectorIndex*>(expr.get())) {
-        n->vector = substitute(std::move(n->vector), subs, gensyms);
-        n->index  = substitute(std::move(n->index),  subs, gensyms);
+        n->vector = SUB(n->vector);
+        n->index  = SUB(n->index);
         return expr;
     }
     if (auto* n = dynamic_cast<LambdaExpr*>(expr.get())) {
-        n->body = substitute(std::move(n->body), subs, gensyms);
+        n->body = SUB(n->body);
         return expr;
     }
     if (auto* n = dynamic_cast<MacroInvoke*>(expr.get())) {
-        for (auto& a : n->value_args) a = substitute(std::move(a), subs, gensyms);
-        if (n->block_arg) n->block_arg = substitute(std::move(n->block_arg), subs, gensyms);
+        for (auto& a : n->value_args) a = SUB(a);
+        if (n->block_arg) n->block_arg = SUB(n->block_arg);
         return expr;
     }
     if (auto* n = dynamic_cast<MatchExpr*>(expr.get())) {
-        n->subject = substitute(std::move(n->subject), subs, gensyms);
-        for (auto& arm : n->arms)
-            arm.body = substitute(std::move(arm.body), subs, gensyms);
-        if (n->default_body)
-            n->default_body = substitute(std::move(n->default_body), subs, gensyms);
+        n->subject = SUB(n->subject);
+        for (auto& arm : n->arms) arm.body = SUB(arm.body);
+        if (n->default_body) n->default_body = SUB(n->default_body);
         return expr;
     }
+
+#undef SUB
 
     // Leaf nodes: nothing to substitute.
     return expr;

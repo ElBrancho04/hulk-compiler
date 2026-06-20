@@ -25,6 +25,7 @@ DIGIT           [0-9]
 LETTER          [a-zA-Z]
 NUMBER          {DIGIT}+(\.{DIGIT}+)?|\.{DIGIT}+
 IDENTIFIER      {LETTER}({LETTER}|{DIGIT}|_)*
+DOLLAR_ID       "$"{LETTER}({LETTER}|{DIGIT}|_)*
 
 %%
 
@@ -69,6 +70,7 @@ IDENTIFIER      {LETTER}({LETTER}|{DIGIT}|_)*
 "@@"                    { column_number += yyleng; return TOK_DCONCAT; }
 "@"                     { column_number += yyleng; return TOK_CONCAT; }
 
+{DOLLAR_ID}             { column_number += yyleng; yylval.str_val = strdup(yytext); return IDENTIFIER; }
 {IDENTIFIER}            { column_number += yyleng; yylval.str_val = strdup(yytext); return IDENTIFIER; }
 {NUMBER}                { column_number += yyleng; yylval.float_val = atof(yytext); return NUMBER; }
 
