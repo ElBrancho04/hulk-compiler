@@ -54,6 +54,11 @@ IDENTIFIER      {LETTER}({LETTER}|{DIGIT}|_)*
 "true"                  { column_number += yyleng; return TOK_TRUE; }
 "false"                 { column_number += yyleng; return TOK_FALSE; }
 
+"def"                   { column_number += yyleng; return TOK_DEF; }
+"match"                 { column_number += yyleng; return TOK_MATCH; }
+"case"                  { column_number += yyleng; return TOK_CASE; }
+"default"               { column_number += yyleng; return TOK_DEFAULT; }
+
 "=>"                    { column_number += yyleng; return TOK_ARROW; }
 "->"                    { column_number += yyleng; return TOK_TYPE_ARROW; }
 ":="                    { column_number += yyleng; return TOK_ASSIGN; }

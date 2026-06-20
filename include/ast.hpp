@@ -17,6 +17,7 @@ class SelfRef; class BaseCall; class IsExpr; class AsExpr;
 class VectorLiteral; class VectorComprehension; class VectorComprehensionFilter;
 class VectorIndex; class Program;
 class LambdaExpr;
+class MacroDef; class MacroInvoke; class MatchExpr;
 
 template <typename T>
 class Visitor {
@@ -434,17 +435,111 @@ public:
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
+// ---------------------------------------------------------------------------
+// Macros (Orden 6)
+// ---------------------------------------------------------------------------
+
+// Macro parameter: regular (by-value) or syntactic (*expr = code block).
+struct MacroParam {
+    std::string name;
+    std::string type_annotation;
+    bool is_syntactic;  // true if declared as *name — captures a code block
+    MacroParam(std::string n, std::string t = "", bool syn = false)
+        : name(std::move(n)), type_annotation(std::move(t)), is_syntactic(syn) {}
+};
+
+// Top-level macro definition: `def name(params): RetType => body;`
+// NOT an Expr — lives in Program.macros; consumed entirely by MacroExpander.
+class MacroDef {
+public:
+    std::string name;
+    std::vector<MacroParam> params;
+    std::string return_type;
+    std::unique_ptr<Expr> body;
+    int line;
+
+    MacroDef(std::string name, std::vector<MacroParam> params,
+             std::string return_type, std::unique_ptr<Expr> body, int line)
+        : name(std::move(name)), params(std::move(params)),
+          return_type(std::move(return_type)), body(std::move(body)), line(line) {}
+};
+
+// Macro invocation site: `name(value_args) { block_arg }`.
+// accept() throws — MacroExpander must replace every MacroInvoke before
+// SemanticAnalyzer or CodeGenerator run. Not in Visitor interface by design.
+class MacroInvoke : public Expr {
+public:
+    std::string name;
+    std::vector<std::unique_ptr<Expr>> value_args;
+    std::unique_ptr<Expr> block_arg;  // the syntactic (*expr) argument, may be null
+
+    MacroInvoke(std::string name, std::vector<std::unique_ptr<Expr>> args,
+                std::unique_ptr<Expr> block, int line, int col = 0)
+        : Expr(line, col), name(std::move(name)),
+          value_args(std::move(args)), block_arg(std::move(block)) {}
+
+    void accept(Visitor<void>&) override {
+        throw std::runtime_error(
+            "MacroInvoke '" + name + "' line " + std::to_string(line) +
+            " was not expanded before codegen");
+    }
+};
+
+// ---------------------------------------------------------------------------
+// match/case (Orden 6) — desugared to if/is/else by MacroExpander
+// ---------------------------------------------------------------------------
+
+struct MatchArm {
+    std::string type_name;
+    std::unique_ptr<Expr> body;
+    int line;
+    MatchArm(std::string t, std::unique_ptr<Expr> b, int l)
+        : type_name(std::move(t)), body(std::move(b)), line(l) {}
+};
+
+// match (subject) { case T1: body1; ... default: def_body; }
+// Desugared by MacroExpander into: let __m__ = subject in if (__m__ is T1) body1 elif ...
+// accept() throws — must be gone before SemanticAnalyzer runs.
+class MatchExpr : public Expr {
+public:
+    std::unique_ptr<Expr> subject;
+    std::vector<MatchArm> arms;
+    std::unique_ptr<Expr> default_body;  // null if no default arm
+
+    MatchExpr(std::unique_ptr<Expr> subject, std::vector<MatchArm> arms,
+              std::unique_ptr<Expr> default_body, int line, int col = 0)
+        : Expr(line, col), subject(std::move(subject)),
+          arms(std::move(arms)), default_body(std::move(default_body)) {}
+
+    void accept(Visitor<void>&) override {
+        throw std::runtime_error(
+            "MatchExpr line " + std::to_string(line) +
+            " was not desugared before codegen");
+    }
+};
+
+// ---------------------------------------------------------------------------
+
 class Program : public Node {
 public:
     std::vector<std::unique_ptr<TypeDef>> types;
     std::vector<std::unique_ptr<ProtocolDef>> protocols;
     std::vector<std::unique_ptr<FuncDef>> functions;
+    std::vector<std::unique_ptr<MacroDef>> macros;  // consumed by MacroExpander
     std::unique_ptr<Expr> global_expression;
 
+    // Original constructor (no macros) — keeps existing callers compiling.
     Program(std::vector<std::unique_ptr<TypeDef>> t, std::vector<std::unique_ptr<ProtocolDef>> p,
             std::vector<std::unique_ptr<FuncDef>> f, std::unique_ptr<Expr> glob, int line, int col = 0)
         : Node(line, col), types(std::move(t)), protocols(std::move(p)),
           functions(std::move(f)), global_expression(std::move(glob)) {}
+
+    // Constructor with macros — used by parser after Orden 6 grammar is added.
+    Program(std::vector<std::unique_ptr<TypeDef>> t, std::vector<std::unique_ptr<ProtocolDef>> p,
+            std::vector<std::unique_ptr<FuncDef>> f, std::vector<std::unique_ptr<MacroDef>> m,
+            std::unique_ptr<Expr> glob, int line, int col = 0)
+        : Node(line, col), types(std::move(t)), protocols(std::move(p)),
+          functions(std::move(f)), macros(std::move(m)), global_expression(std::move(glob)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
