@@ -88,6 +88,8 @@ void CodeGenerator::visit(BinaryExpr& node) {
         emit(Instruction(OpCode::DIV));
     } else if (node.op == "^") {
         emit(Instruction(OpCode::POW));
+    } else if (node.op == "%") {
+        emit(Instruction(OpCode::MOD));
     } else if (node.op == "&") {
         emit(Instruction(OpCode::AND));
     } else if (node.op == "|") {
@@ -271,6 +273,12 @@ void CodeGenerator::visit(FuncCall& node) {
 void CodeGenerator::visit(FuncDef& node) {
     std::string previous_method = current_method_;
     current_method_.clear();
+
+    // Emit a JUMP placeholder so the function body is skipped during linear
+    // execution. CALL jumps directly to the body via function_table, bypassing
+    // this JUMP.
+    std::size_t skip_jump = emitJump(OpCode::JUMP);
+
     std::size_t start_index = program_.code.size();
     program_.addFunctionSymbol(node.name, start_index);
     emit(Instruction::Label(static_cast<int>(start_index)));
@@ -286,6 +294,10 @@ void CodeGenerator::visit(FuncDef& node) {
 
     emit(Instruction(OpCode::RETURN));
     exitScope();
+
+    // Patch the skip JUMP to land just past the function body.
+    patchJump(skip_jump, program_.code.size());
+
     current_method_ = previous_method;
 }
 void CodeGenerator::visit(TypeDef& node) {
@@ -295,6 +307,11 @@ void CodeGenerator::visit(TypeDef& node) {
     // Generate __init__ method that initializes attributes and calls parent constructor
     {
         std::string init_symbol = node.name + ".__init__";
+
+        // Emit a JUMP placeholder so the __init__ body is skipped during linear
+        // execution. METHOD_CALL jumps directly to the body via function_table.
+        std::size_t skip_jump = emitJump(OpCode::JUMP);
+
         std::size_t start_index = program_.code.size();
         program_.addFunctionSymbol(init_symbol, start_index);
         emit(Instruction::Label(static_cast<int>(start_index)));
@@ -348,6 +365,9 @@ void CodeGenerator::visit(TypeDef& node) {
         emit(Instruction(OpCode::SELF));
         emit(Instruction(OpCode::RETURN));
         exitScope();
+
+        // Patch the skip JUMP to land just past __init__.
+        patchJump(skip_jump, program_.code.size());
     }
 
     // Generate regular methods
@@ -360,6 +380,11 @@ void CodeGenerator::visit(TypeDef& node) {
         current_method_ = method->name;
 
         std::string symbol = node.name + "." + method->name;
+
+        // Emit a JUMP placeholder so the method body is skipped during linear
+        // execution. METHOD_CALL jumps directly to the body via function_table.
+        std::size_t skip_jump = emitJump(OpCode::JUMP);
+
         std::size_t start_index = program_.code.size();
         program_.addFunctionSymbol(symbol, start_index);
         emit(Instruction::Label(static_cast<int>(start_index)));
@@ -375,6 +400,9 @@ void CodeGenerator::visit(TypeDef& node) {
 
         emit(Instruction(OpCode::RETURN));
         exitScope();
+
+        // Patch the skip JUMP to land just past this method's body.
+        patchJump(skip_jump, program_.code.size());
 
         current_method_ = previous_method;
     }

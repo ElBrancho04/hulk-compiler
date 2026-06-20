@@ -69,6 +69,19 @@ public:
     static bool is_vector_type(const std::string& type_name, std::string* element_out = nullptr);
     static bool is_iterable_type(const std::string& type_name, std::string* element_out = nullptr);
 
+    // Functor types: (T1,T2)->R  ->  _Functor_N with invoke(T1,T2): R
+    void ensure_functor_type(const std::vector<std::string>& param_types,
+                             const std::string& return_type);
+    static bool is_functor_type_name(const std::string& type_name,
+                                     std::vector<std::string>* param_types_out = nullptr,
+                                     std::string* return_type_out = nullptr);
+    static std::string make_functor_type_name(const std::vector<std::string>& param_types,
+                                              const std::string& return_type);
+    // Parse functional type annotation string like "_FuncType(T1,T2)->R"
+    static bool parse_functional_annotation(const std::string& annotation,
+                                            std::vector<std::string>* param_types_out,
+                                            std::string* return_type_out);
+
 private:
     std::unordered_map<std::string, TypeInfo> types_;
     std::unordered_set<std::string> final_types_;

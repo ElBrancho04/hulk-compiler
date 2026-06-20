@@ -22,6 +22,7 @@ enum class OpCode {
     MUL,
     DIV,
     POW,
+    MOD,
     NEG,
     NOT,
     AND,
@@ -198,6 +199,7 @@ inline std::string to_string(OpCode opcode) {
         case OpCode::MUL: return "MUL";
         case OpCode::DIV: return "DIV";
         case OpCode::POW: return "POW";
+        case OpCode::MOD: return "MOD";
         case OpCode::NEG: return "NEG";
         case OpCode::NOT: return "NOT";
         case OpCode::AND: return "AND";

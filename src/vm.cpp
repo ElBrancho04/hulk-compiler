@@ -169,6 +169,15 @@ void VM::execute(BytecodeProgram& program) {
                 stack_.push_back(Value::Number(std::pow(lhs, rhs)));
                 break;
             }
+            case OpCode::MOD: {
+                double rhs = popNumber("MOD");
+                double lhs = popNumber("MOD");
+                if (rhs == 0.0) {
+                    throw RuntimeError("Modulo by zero");
+                }
+                stack_.push_back(Value::Number(std::fmod(lhs, rhs)));
+                break;
+            }
             case OpCode::NEG: {
                 double value = popNumber("NEG");
                 stack_.push_back(Value::Number(-value));

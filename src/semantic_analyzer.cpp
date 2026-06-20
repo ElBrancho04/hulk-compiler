@@ -308,6 +308,24 @@ void SemanticAnalyzer::validate_no_duplicates(const std::vector<Parameter>& para
 void SemanticAnalyzer::ensure_type_registered(const std::string& type_name, int line) {
     if (type_name.empty()) return;
     std::string element;
+
+    // Check for functional type annotation: _FuncType(T1,T2)->R
+    std::vector<std::string> func_param_types;
+    std::string func_return_type;
+    if (TypeTable::parse_functional_annotation(type_name, &func_param_types, &func_return_type)) {
+        // Ensure all param types and return type are registered
+        for (const auto& pt : func_param_types) {
+            if (!pt.empty() && pt != kObjectType) {
+                ensure_type_registered(pt, line);
+            }
+        }
+        if (!func_return_type.empty() && func_return_type != kObjectType) {
+            ensure_type_registered(func_return_type, line);
+        }
+        type_table_.ensure_functor_type(func_param_types, func_return_type);
+        return;
+    }
+
     if (TypeTable::is_iterable_type(type_name, &element)) {
         if (!type_table_.has_type(element) && !TypeTable::is_vector_type(element) && !TypeTable::is_iterable_type(element)) {
             throw SemanticError(line, "tipo elemento desconocido en Iterable: " + element);
@@ -396,32 +414,49 @@ MethodSig SemanticAnalyzer::resolve_method_sig(const std::string& type_name,
                                                const std::string& method,
                                                int line) {
     ensure_type_registered(type_name, line);
-    if (!type_table_.has_type(type_name)) {
-        throw SemanticError(line, "tipo no definido para llamada de método: " + type_name);
+
+    // Buscar primero como tipo nominal; si no existe, intentar como protocolo.
+    if (type_table_.has_type(type_name)) {
+        auto inferred_it = analyzed_types_.find(type_name);
+        if (inferred_it != analyzed_types_.end()) {
+            const TypeInfo& inferred = inferred_it->second;
+            auto method_it = inferred.methods.find(method);
+            if (method_it != inferred.methods.end()) {
+                return method_it->second;
+            }
+        }
+
+        const TypeInfo* current = &type_table_.get_type(type_name);
+        while (current) {
+            auto it = current->methods.find(method);
+            if (it != current->methods.end()) {
+                return it->second;
+            }
+            if (current->parent.empty() || !type_table_.has_type(current->parent)) {
+                break;
+            }
+            current = &type_table_.get_type(current->parent);
+        }
+
+        throw SemanticError(line, "método no definido: " + method + " en " + type_name);
     }
 
-    auto inferred_it = analyzed_types_.find(type_name);
-    if (inferred_it != analyzed_types_.end()) {
-        const TypeInfo& inferred = inferred_it->second;
-        auto method_it = inferred.methods.find(method);
-        if (method_it != inferred.methods.end()) {
-            return method_it->second;
+    if (type_table_.has_protocol(type_name)) {
+        // Recorrer el protocolo y sus padres para encontrar el método.
+        std::string current_name = type_name;
+        std::unordered_set<std::string> visited;
+        while (!current_name.empty() && visited.insert(current_name).second) {
+            const ProtocolInfo& proto = type_table_.get_protocol(current_name);
+            auto it = proto.methods.find(method);
+            if (it != proto.methods.end()) {
+                return it->second;
+            }
+            current_name = proto.parent;
         }
+        throw SemanticError(line, "método no definido: " + method + " en protocolo " + type_name);
     }
 
-    const TypeInfo* current = &type_table_.get_type(type_name);
-    while (current) {
-        auto it = current->methods.find(method);
-        if (it != current->methods.end()) {
-            return it->second;
-        }
-        if (current->parent.empty() || !type_table_.has_type(current->parent)) {
-            break;
-        }
-        current = &type_table_.get_type(current->parent);
-    }
-
-    throw SemanticError(line, "método no definido: " + method + " en " + type_name);
+    throw SemanticError(line, "tipo no definido para llamada de método: " + type_name);
 }
 
 std::string SemanticAnalyzer::visit(NumberLiteral& node) {
@@ -443,7 +478,7 @@ std::string SemanticAnalyzer::visit(BinaryExpr& node) {
     const std::string left_type = analyze_expr(node.left.get());
     const std::string right_type = analyze_expr(node.right.get());
 
-    if (node.op == "+" || node.op == "-" || node.op == "*" || node.op == "/" || node.op == "^") {
+    if (node.op == "+" || node.op == "-" || node.op == "*" || node.op == "/" || node.op == "^" || node.op == "%") {
         ensure_conforms(left_type, kNumberType, node.line, "operador aritmético");
         ensure_conforms(right_type, kNumberType, node.line, "operador aritmético");
         return kNumberType;
@@ -598,16 +633,39 @@ std::string SemanticAnalyzer::visit(FuncCall& node) {
             throw SemanticError(node.line, "aridad incorrecta en llamada a " + node.name);
         }
         for (std::size_t i = 0; i < node.args.size(); ++i) {
-            const std::string arg_type = analyze_expr(node.args[i].get());
             const std::string param_type = sig.param_types[i].empty() ? kObjectType : sig.param_types[i];
+
+            // Check if this argument is a VarRef that refers to a global function,
+            // and the expected parameter type is a functor type (type or protocol
+            // that declares an invoke method). If so, transparently wrap the
+            // function reference as a functor value.
+            if (auto* var_ref = dynamic_cast<VarRef*>(node.args[i].get())) {
+                if (functions_.count(var_ref->name) > 0
+                    && (type_table_.has_type(param_type) || type_table_.has_protocol(param_type))) {
+                    try {
+                        MethodSig invoke_sig = resolve_method_sig(param_type, "invoke", node.line);
+                        // Wrap the function reference into a functor NewExpr
+                        node.args[i] = wrapFunctionAsFunctor(var_ref->name, param_type, invoke_sig, node.line);
+                        // Now analyze the wrapper's type
+                        const std::string arg_type = analyze_expr(node.args[i].get());
+                        ensure_conforms(arg_type, param_type, node.line, "argumento de función (wrapper)");
+                        continue;
+                    } catch (...) {
+                        // Not a functor type, fall through to normal checking
+                    }
+                }
+            }
+
+            const std::string arg_type = analyze_expr(node.args[i].get());
             ensure_conforms(arg_type, param_type, node.line, "argumento de función");
         }
         return sig.return_type.empty() ? kObjectType : sig.return_type;
     }
 
-    // Caso 2: variable en scope que puede ser un functor (tiene método invoke)
+    // Caso 2: variable en scope que puede ser un functor (tipo o protocolo con invoke)
     std::string functor_type;
-    if (symbols_.try_lookup(node.name, functor_type) && type_table_.has_type(functor_type)) {
+    if (symbols_.try_lookup(node.name, functor_type)
+        && (type_table_.has_type(functor_type) || type_table_.has_protocol(functor_type))) {
         MethodSig sig;
         try {
             sig = resolve_method_sig(functor_type, "invoke", node.line);
@@ -1037,6 +1095,70 @@ std::string SemanticAnalyzer::analyze_expr(Expr* expr) {
         return visit(*node);
     }
     return kObjectType;
+}
+
+std::unique_ptr<Expr> SemanticAnalyzer::wrapFunctionAsFunctor(
+    const std::string& func_name,
+    const std::string& expected_functor_type,
+    const MethodSig& invoke_sig,
+    int line) {
+
+    // 1. Find the function signature
+    auto func_it = functions_.find(func_name);
+    if (func_it == functions_.end()) {
+        throw SemanticError(line, "función no encontrada para wrapper functor: " + func_name);
+    }
+    const auto& func_sig = func_it->second;
+
+    // 2. Generate unique wrapper type name
+    std::string wrapper_name = "_FuncWrapper_" + std::to_string(wrapper_counter_++);
+
+    // 3. Build the invoke method body: it calls the global function with the same params
+    // invoke(p1, p2, ...) => global_func(p1, p2, ...)
+    std::vector<std::unique_ptr<Expr>> invoke_call_args;
+    std::vector<Parameter> invoke_params;
+    std::vector<std::string> invoke_param_types;
+    std::size_t param_count = func_sig.param_types.size();
+    for (std::size_t i = 0; i < param_count; ++i) {
+        std::string pname = "_p" + std::to_string(i);
+        invoke_params.emplace_back(pname, func_sig.param_types[i]);
+        invoke_param_types.push_back(func_sig.param_types[i]);
+        invoke_call_args.push_back(std::make_unique<VarRef>(pname, line));
+    }
+    auto invoke_body = std::make_unique<FuncCall>(func_name, std::move(invoke_call_args), line);
+
+    // 4. Create the invoke method
+    std::string invoke_return = func_sig.return_type.empty() ? kObjectType : func_sig.return_type;
+    std::vector<std::unique_ptr<MethodDef>> methods;
+    methods.push_back(std::make_unique<MethodDef>(
+        "invoke", invoke_params, invoke_return, std::move(invoke_body), line));
+
+    // 5. Create the TypeDef (no constructor params, no attributes)
+    auto type_def = std::make_unique<TypeDef>(
+        wrapper_name,
+        std::vector<Parameter>{},  // no ctor params
+        "",                         // no parent
+        std::vector<std::unique_ptr<Expr>>(), // no parent args
+        std::vector<std::unique_ptr<AttributeDef>>(), // no attributes
+        std::move(methods),
+        line
+    );
+
+    // 6. Register the type
+    std::unordered_map<std::string, MethodSig> method_sig_map;
+    method_sig_map["invoke"] = MethodSig{invoke_param_types, invoke_return};
+    TypeInfo type_info{wrapper_name, kObjectType, {}, std::move(method_sig_map)};
+    type_table_.register_type(type_info);
+    analyzed_types_[wrapper_name] = type_info;
+    type_constructors_[wrapper_name] = {}; // empty ctor
+
+    // 7. Add to program
+    if (current_program_) {
+        current_program_->types.push_back(std::move(type_def));
+    }
+
+    // 8. Return a NewExpr for the wrapper
+    return std::make_unique<NewExpr>(wrapper_name, std::vector<std::unique_ptr<Expr>>(), line);
 }
 
 std::string SemanticAnalyzer::visit(LambdaExpr& node) {

@@ -96,7 +96,7 @@ std::vector<std::unique_ptr<T>> to_unique_vec(std::vector<T*>* src) {
 %type <func_ptr> function_definition
 %type <type_ptr> type_definition
 %type <protocol_ptr> protocol_definition
-%type <str_val> opt_type_annotation opt_return_type opt_extends type_expr
+%type <str_val> opt_type_annotation opt_return_type opt_extends type_expr func_type_params
 %type <expr_list> expression_list opt_expression_list opt_type_args block_expression_list
 %type <expr_list> vector_elements opt_vector_elements
 %type <param_list> params_list params_list_not_empty opt_type_params
@@ -449,6 +449,36 @@ type_expr:
         char* buf = (char*)malloc(len);
         sprintf(buf, "Vector<%s>", $1);
         free($1);
+        $$ = buf;
+    }
+    | '(' func_type_params ')' TOK_TYPE_ARROW type_expr
+    {
+        // Build: _FuncType(T1,T2)->R
+        size_t len = 12 + strlen($2) + strlen($5) + 1; // "_FuncType(" + params + ")->" + ret
+        char* buf = (char*)malloc(len);
+        sprintf(buf, "_FuncType(%s)->%s", $2, $5);
+        free($2);
+        free($5);
+        $$ = buf;
+    }
+    ;
+
+func_type_params:
+    /* vacio */
+    {
+        $$ = strdup("");
+    }
+    | type_expr
+    {
+        $$ = strdup($1);
+    }
+    | func_type_params ',' type_expr
+    {
+        size_t len = strlen($1) + strlen($3) + 2;
+        char* buf = (char*)malloc(len);
+        sprintf(buf, "%s,%s", $1, $3);
+        free($1);
+        free($3);
         $$ = buf;
     }
     ;

@@ -1,5 +1,7 @@
 #include "type_table.hpp"
 
+#include <cctype>
+#include <cstring>
 #include <stdexcept>
 
 namespace {
@@ -11,6 +13,14 @@ constexpr const char* kBooleanType = "Boolean";
 constexpr const char* kVectorPrefix = "Vector<";
 constexpr const char* kIterablePrefix = "Iterable<";
 constexpr const char* kContainerSuffix = ">";
+
+constexpr const char* kFunctorTypePrefix = "_FunctorType_";
+constexpr const char* kFuncAnnotationPrefix = "_FuncType(";
+constexpr const char* kFuncAnnotationSuffix = ")";
+constexpr const char* kFuncAnnotationSep = ",";
+constexpr const char* kFuncRetSep = "->";
+
+constexpr const char* kInvokeMethod = "invoke";
 } // namespace
 
 TypeTable::TypeTable() {
@@ -393,4 +403,136 @@ std::unordered_map<std::string, MethodSig> TypeTable::get_all_protocol_methods(c
         current = proto.parent;
     }
     return all_methods;
+}
+
+// ─── Functor Types ─────────────────────────────────────────────────────────
+
+void TypeTable::ensure_functor_type(const std::vector<std::string>& param_types,
+                                    const std::string& return_type) {
+    const std::string type_name = make_functor_type_name(param_types, return_type);
+    if (types_.count(type_name) > 0) {
+        return;  // Already registered
+    }
+
+    // Build invoke signature
+    std::vector<std::string> invoke_param_types = param_types;
+    std::string invoke_return = return_type.empty() ? kObjectType : return_type;
+
+    // Register as a ProtocolInfo (so structural conformance works via type_has_methods_for_protocol)
+    if (!has_protocol(type_name)) {
+        ProtocolInfo proto;
+        proto.name = type_name;
+        proto.parent = "";
+        proto.methods.emplace(kInvokeMethod, MethodSig{invoke_param_types, invoke_return});
+        protocols_.emplace(type_name, std::move(proto));
+    }
+
+    // Also register as TypeInfo for NEW, method resolution, etc.
+    TypeInfo info{type_name, kObjectType};
+    info.methods.emplace(kInvokeMethod, MethodSig{std::move(invoke_param_types), invoke_return});
+    register_type(std::move(info));
+    synthetic_types_.insert(type_name);
+}
+
+bool TypeTable::is_functor_type_name(const std::string& type_name,
+                                     std::vector<std::string>* param_types_out,
+                                     std::string* return_type_out) {
+    // Pattern: _FunctorType_N where N is an integer
+    const std::string& prefix = kFunctorTypePrefix;
+    if (type_name.rfind(prefix, 0) != 0) {
+        return false;
+    }
+    // The rest should be a number (we don't need to decode it, just confirm pattern)
+    std::string num_part = type_name.substr(prefix.size());
+    if (num_part.empty()) {
+        return false;
+    }
+    for (char c : num_part) {
+        if (!std::isdigit(c)) {
+            return false;
+        }
+    }
+
+    // If caller wants the actual param types and return type, they need to look them up
+    // via the TypeInfo in TypeTable
+    if (param_types_out || return_type_out) {
+        // This can only be filled by looking up the already-registered type
+        // So we leave empty here; caller should use get_type() if needed
+    }
+    return true;
+}
+
+std::string TypeTable::make_functor_type_name(const std::vector<std::string>& param_types,
+                                              const std::string& return_type) {
+    // Build a deterministic name from param/return types so we can deduplicate
+    // Format: _FunctorType_<hash-or-counter>
+    // We use a static counter for simplicity, keyed by the string representation
+    static std::unordered_map<std::string, int> functor_name_cache;
+    static int functor_counter = 0;
+
+    // Build a signature key
+    std::string key;
+    for (const auto& pt : param_types) {
+        if (!key.empty()) key += kFuncAnnotationSep;
+        key += pt;
+    }
+    key += kFuncRetSep;
+    key += return_type.empty() ? kObjectType : return_type;
+
+    auto it = functor_name_cache.find(key);
+    if (it != functor_name_cache.end()) {
+        return kFunctorTypePrefix + std::to_string(it->second);
+    }
+
+    int id = functor_counter++;
+    functor_name_cache[key] = id;
+    return kFunctorTypePrefix + std::to_string(id);
+}
+
+bool TypeTable::parse_functional_annotation(const std::string& annotation,
+                                            std::vector<std::string>* param_types_out,
+                                            std::string* return_type_out) {
+    // Format: _FuncType(T1,T2)->R
+    const std::string& prefix = kFuncAnnotationPrefix;
+    if (annotation.rfind(prefix, 0) != 0) {
+        return false;
+    }
+
+    // Find the closing paren: first ')' after the prefix
+    std::size_t paren_pos = annotation.find(')', prefix.size());
+    if (paren_pos == std::string::npos) {
+        return false;
+    }
+
+    // Extract params substring
+    std::string params_str = annotation.substr(prefix.size(), paren_pos - prefix.size());
+
+    // Find -> separator
+    std::string suffix = annotation.substr(paren_pos + 1);
+    if (suffix.rfind(kFuncRetSep, 0) != 0) {
+        return false;
+    }
+    std::string ret_type = suffix.substr(strlen(kFuncRetSep));
+
+    if (param_types_out) {
+        param_types_out->clear();
+        if (!params_str.empty()) {
+            std::size_t start = 0;
+            while (start < params_str.size()) {
+                std::size_t comma = params_str.find(kFuncAnnotationSep, start);
+                if (comma == std::string::npos) {
+                    param_types_out->push_back(params_str.substr(start));
+                    break;
+                }
+                param_types_out->push_back(params_str.substr(start, comma - start));
+                start = comma + 1;
+            }
+        }
+    }
+
+    if (return_type_out) {
+        *return_type_out = ret_type;
+    }
+
+    return true;
 }

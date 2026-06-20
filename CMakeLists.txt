@@ -92,3 +92,12 @@ add_executable(type_annotations_smoke_test
     src/semantic_utils.cpp
     src/type_table.cpp
 )
+
+add_executable(functor_smoke_test
+    tests/functor_smoke_test.cpp
+    src/semantic_analyzer.cpp
+    src/semantic_utils.cpp
+    src/type_table.cpp
+    src/code_generator.cpp
+    src/vm.cpp
+)

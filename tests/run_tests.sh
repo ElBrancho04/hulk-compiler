@@ -25,6 +25,7 @@ TEST_TARGETS=(
     "lambda_smoke_test"
     "type_annotations_smoke_test"
     "runtime_test"
+    "functor_smoke_test"
 )
 
 # Step 1: Build tests if needed

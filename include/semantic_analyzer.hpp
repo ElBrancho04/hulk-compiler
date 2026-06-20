@@ -91,6 +91,13 @@ private:
     static void validate_no_cycles(const std::unordered_map<std::string, std::string>& parents,
                                    const std::unordered_map<std::string, int>& lines);
     static void validate_no_duplicates(const std::vector<Parameter>& params, int line, const std::string& owner);
+
+    // Functor wrapper generation: wraps a global function in an anonymous TypeDef with invoke()
+    std::unique_ptr<Expr> wrapFunctionAsFunctor(const std::string& func_name,
+                                                 const std::string& expected_functor_type,
+                                                 const MethodSig& invoke_sig,
+                                                 int line);
+    int wrapper_counter_ = 0;
 };
 
 #endif
