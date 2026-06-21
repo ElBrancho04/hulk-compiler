@@ -92,6 +92,7 @@ std::unique_ptr<Expr> MacroExpander::expand_expr(std::unique_ptr<Expr> expr) {
         return expr;
     }
     if (auto* n = dynamic_cast<AssignExpr*>(expr.get())) {
+        if (n->object) n->object = expand_expr(std::move(n->object));
         n->value = expand_expr(std::move(n->value));
         return expr;
     }
@@ -304,8 +305,11 @@ std::unique_ptr<Expr> MacroExpander::clone(const Expr* e) const {
         return std::make_unique<UnaryExpr>(n->op, clone(n->operand.get()), n->line, n->col);
     if (auto* n = dynamic_cast<const BlockExpr*>(e))
         return std::make_unique<BlockExpr>(clv(n->expressions), n->line, n->col);
-    if (auto* n = dynamic_cast<const AssignExpr*>(e))
+    if (auto* n = dynamic_cast<const AssignExpr*>(e)) {
+        if (n->object)
+            return std::make_unique<AssignExpr>(clone(n->object.get()), n->name, clone(n->value.get()), n->line, n->col);
         return std::make_unique<AssignExpr>(n->name, clone(n->value.get()), n->line, n->col);
+    }
 
     if (auto* n = dynamic_cast<const LetExpr*>(e)) {
         std::vector<LetBinding> binds;
@@ -404,6 +408,7 @@ std::unique_ptr<Expr> MacroExpander::substitute(
 
     // AssignExpr: rename $name on lhs too.
     if (auto* ae = dynamic_cast<AssignExpr*>(expr.get())) {
+        if (ae->object) ae->object = SUB(ae->object);
         ae->value = SUB(ae->value);
         if (!ae->name.empty() && ae->name[0] == '$') {
             std::string key = ae->name.substr(1);

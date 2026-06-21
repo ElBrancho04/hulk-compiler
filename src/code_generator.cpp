@@ -142,6 +142,14 @@ void CodeGenerator::visit(VarRef& node) {
 }
 
 void CodeGenerator::visit(AssignExpr& node) {
+    // Member assignment: object.member := value
+    if (node.object) {
+        node.object->accept(*this);          // [obj]
+        if (node.value) node.value->accept(*this);  // [obj, value]
+        emit(Instruction::SetAttr(node.name));       // [obj]  (SET_ATTR leaves obj)
+        emit(Instruction::GetAttr(node.name));       // [value]  := returns the assigned value
+        return;
+    }
     if (node.value) {
         node.value->accept(*this);
     }
@@ -322,15 +330,18 @@ void CodeGenerator::visit(TypeDef& node) {
             emitStore(param.name);
         }
 
-        // Call parent's __init__ if there is inheritance
+        // Call parent's __init__ if there is inheritance.
+        // Must be a STATIC call (BASE_CALL) to the parent's __init__, not a virtual
+        // MethodCall — otherwise on a subtype instance it would dispatch back to the
+        // subtype's own __init__ and recurse infinitely.
         if (!node.parent_name.empty()) {
-            emit(Instruction(OpCode::SELF));
             for (auto& parent_arg : node.parent_args) {
                 if (parent_arg) {
                     parent_arg->accept(*this);
                 }
             }
-            emit(Instruction::MethodCall("__init__", static_cast<int>(node.parent_args.size())));
+            emit(Instruction::BaseCall(node.parent_name + ".__init__",
+                                       static_cast<int>(node.parent_args.size())));
             emit(Instruction(OpCode::POP));
         }
 

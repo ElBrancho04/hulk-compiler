@@ -129,14 +129,14 @@ std::vector<std::unique_ptr<T>> to_unique_vec(std::vector<T*>* src) {
 %nonassoc TOK_EQ TOK_NEQ '<' '>' TOK_LEQ TOK_GEQ TOK_IS TOK_AS
 %left TOK_CONCAT TOK_DCONCAT
 %left '+' '-'
-%left '*' '/'
+%left '*' '/' '%'
 %right '^'
 %right NEG
 
 %%
 
 program:
-    definition_list expression ';'
+    definition_list expression opt_semicolon
     {
         root = new Program(
             to_unique_vec($1->types),
@@ -241,7 +241,7 @@ opt_type_params:
 
 opt_return_type:
     /* vacio */ { $$ = nullptr; }
-    | TOK_TYPE_ARROW type_expr { $$ = $2; }
+    | ':' type_expr { $$ = $2; }
     ;
 
 opt_inherits:
@@ -278,6 +278,7 @@ expression:
 
 assign_expr:
     IDENTIFIER TOK_ASSIGN assign_expr { $$ = new AssignExpr($1, std::unique_ptr<Expr>($3), line_number, column_number); }
+    | postfix_expr '.' IDENTIFIER TOK_ASSIGN assign_expr { $$ = new AssignExpr(std::unique_ptr<Expr>($1), $3, std::unique_ptr<Expr>($5), line_number, column_number); }
     | let_expr { $$ = $1; }
     ;
 
@@ -384,6 +385,7 @@ add_expr:
 mul_expr:
     mul_expr '*' pow_expr { $$ = new BinaryExpr("*", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | mul_expr '/' pow_expr { $$ = new BinaryExpr("/", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | mul_expr '%' pow_expr { $$ = new BinaryExpr("%", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | pow_expr { $$ = $1; }
     ;
 

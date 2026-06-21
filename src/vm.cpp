@@ -366,6 +366,19 @@ void VM::execute(BytecodeProgram& program) {
                 std::string symbol = obj->type_name + "." + inst.name;
                 auto it = program.function_table.find(symbol);
                 if (it == program.function_table.end()) {
+                    // Virtual dispatch: method may be inherited — walk the ancestor chain.
+                    auto anc_it = program.type_ancestors.find(obj->type_name);
+                    if (anc_it != program.type_ancestors.end()) {
+                        for (const auto& ancestor : anc_it->second) {
+                            auto cand = program.function_table.find(ancestor + "." + inst.name);
+                            if (cand != program.function_table.end()) {
+                                it = cand;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (it == program.function_table.end()) {
                     throw RuntimeError("Unknown method: " + symbol);
                 }
 

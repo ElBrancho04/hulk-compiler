@@ -7,7 +7,7 @@
 
 // Binary format version for forward compatibility.
 constexpr uint32_t kSerializeMagic = 0x48554C4B; // "HULK"
-constexpr uint32_t kSerializeVersion = 1;
+constexpr uint32_t kSerializeVersion = 2;
 
 // Serialize a BytecodeProgram to a binary file at the given path.
 // The format is: magic | version | code_count | instructions... |

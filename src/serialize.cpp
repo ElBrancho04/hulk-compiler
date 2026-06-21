@@ -148,6 +148,18 @@ void serialize(const BytecodeProgram& prog, const std::string& path) {
         uint32_t idx = static_cast<uint32_t>(entry.second);
         write_val(out, idx);
     }
+
+    // Type ancestors section (for virtual method dispatch over inherited methods).
+    uint32_t anc_count = static_cast<uint32_t>(prog.type_ancestors.size());
+    write_val(out, anc_count);
+    for (const auto& entry : prog.type_ancestors) {
+        write_string(out, entry.first);
+        uint32_t n = static_cast<uint32_t>(entry.second.size());
+        write_val(out, n);
+        for (const auto& anc : entry.second) {
+            write_string(out, anc);
+        }
+    }
 }
 
 BytecodeProgram deserialize(const std::string& path) {
@@ -188,6 +200,19 @@ BytecodeProgram deserialize(const std::string& path) {
         std::string name = read_string(in);
         uint32_t idx = read_val<uint32_t>(in);
         prog.function_table[name] = idx;
+    }
+
+    // Type ancestors section.
+    uint32_t anc_count = read_val<uint32_t>(in);
+    for (uint32_t i = 0; i < anc_count; ++i) {
+        std::string name = read_string(in);
+        uint32_t n = read_val<uint32_t>(in);
+        std::vector<std::string> ancestors;
+        ancestors.reserve(n);
+        for (uint32_t j = 0; j < n; ++j) {
+            ancestors.push_back(read_string(in));
+        }
+        prog.type_ancestors[name] = std::move(ancestors);
     }
 
     return prog;

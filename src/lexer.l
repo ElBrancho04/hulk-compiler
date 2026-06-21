@@ -46,7 +46,7 @@ DOLLAR_ID       "$"{LETTER}({LETTER}|{DIGIT}|_)*
 "inherits"              { column_number += yyleng; return TOK_INHERITS; }
 "new"                   { column_number += yyleng; return TOK_NEW; }
 "self"                  { column_number += yyleng; return TOK_SELF; }
-"base"                  { column_number += yyleng; return TOK_BASE; }
+"base"/[ \t]*"("        { column_number += yyleng; return TOK_BASE; }
 "is"                    { column_number += yyleng; return TOK_IS; }
 "as"                    { column_number += yyleng; return TOK_AS; }
 "protocol"              { column_number += yyleng; return TOK_PROTOCOL; }
@@ -77,10 +77,30 @@ DOLLAR_ID       "$"{LETTER}({LETTER}|{DIGIT}|_)*
 \"                      { column_number += yyleng; parsed_string = ""; BEGIN(STR_STATE); }
 <STR_STATE>\"           { column_number += yyleng; BEGIN(INITIAL); yylval.str_val = strdup(parsed_string.c_str()); return STRING; }
 <STR_STATE>\\n          { column_number += yyleng; parsed_string += '\n'; }
-<STR_STATE>\\\"         { column_number += yyleng; parsed_string += '\"'; }
-<STR_STATE>[^\\\"\n]+   { column_number += yyleng; parsed_string += yytext; }
-<STR_STATE>\n           { line_number++; column_number = 1; parsed_string += '\n'; }
 <STR_STATE>\\t          { column_number += yyleng; parsed_string += '\t'; }
+<STR_STATE>\\\"         { column_number += yyleng; parsed_string += '\"'; }
+<STR_STATE>\\\\         { column_number += yyleng; parsed_string += '\\'; }
+<STR_STATE>\\.          {
+    std::cerr << "(" << line_number << "," << column_number << ") LEXICAL: invalid escape sequence '"
+              << yytext << "'" << std::endl;
+    column_number += yyleng;
+    lexical_errors_count++;
+}
+<STR_STATE>\n           {
+    std::cerr << "(" << line_number << "," << column_number << ") LEXICAL: unterminated string literal"
+              << std::endl;
+    line_number++; column_number = 1;
+    lexical_errors_count++;
+    BEGIN(INITIAL);
+}
+<STR_STATE><<EOF>>      {
+    std::cerr << "(" << line_number << "," << column_number << ") LEXICAL: unterminated string literal at end of file"
+              << std::endl;
+    lexical_errors_count++;
+    BEGIN(INITIAL);
+    return 0;
+}
+<STR_STATE>[^\\\"\n]+   { column_number += yyleng; parsed_string += yytext; }
 
 "+"                     { column_number += yyleng; return '+'; }
 "-"                     { column_number += yyleng; return '-'; }

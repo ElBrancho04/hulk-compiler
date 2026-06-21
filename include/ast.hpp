@@ -121,9 +121,14 @@ class AssignExpr : public Expr {
 public:
     std::string name;
     std::unique_ptr<Expr> value;
+    // Optional object: when non-null this is a member assignment `object.name := value`.
+    std::unique_ptr<Expr> object;
 
     AssignExpr(std::string name, std::unique_ptr<Expr> value, int line, int col = 0)
-        : Expr(line, col), name(std::move(name)), value(std::move(value)) {}
+        : Expr(line, col), name(std::move(name)), value(std::move(value)), object(nullptr) {}
+
+    AssignExpr(std::unique_ptr<Expr> object, std::string name, std::unique_ptr<Expr> value, int line, int col = 0)
+        : Expr(line, col), name(std::move(name)), value(std::move(value)), object(std::move(object)) {}
 
     void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
