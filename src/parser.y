@@ -299,7 +299,7 @@ assign_expr:
     ;
 
 let_expr:
-    TOK_LET let_bindings TOK_IN let_expr
+    TOK_LET let_bindings TOK_IN assign_expr
     {
         $$ = new LetExpr(std::move(*$2), std::unique_ptr<Expr>($4), line_number, column_number);
         delete $2;
