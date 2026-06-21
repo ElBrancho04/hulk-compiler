@@ -112,7 +112,7 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
         std::vector<std::string> ctor_params;
         ctor_params.reserve(type_def->type_params.size());
         for (const auto& param : type_def->type_params) {
-            const std::string pt = param.type_annotation.empty() ? kObjectType : param.type_annotation;
+            const std::string pt = param.type_annotation.empty() ? kObjectType : normalize_annotation(param.type_annotation);
             ctor_params.push_back(pt);
         }
         type_constructors_[name] = std::move(ctor_params);
@@ -141,7 +141,7 @@ void SemanticAnalyzer::pass1_register_types(Program& program) {
             std::vector<std::string> param_types;
             param_types.reserve(method->params.size());
             for (const auto& param : method->params) {
-                const std::string pt = param.type_annotation.empty() ? kDefaultParamType : param.type_annotation;
+                const std::string pt = param.type_annotation.empty() ? kDefaultParamType : normalize_annotation(param.type_annotation);
                 param_types.push_back(pt);
             }
             methods.emplace(method->name, MethodSig{std::move(param_types), method->return_type});
@@ -190,10 +190,10 @@ void SemanticAnalyzer::pass2_register_functions(Program& program) {
         std::vector<std::string> param_types;
         param_types.reserve(func_def->params.size());
         for (const auto& param : func_def->params) {
-            const std::string pt = param.type_annotation.empty() ? kDefaultParamType : param.type_annotation;
+            const std::string pt = param.type_annotation.empty() ? kDefaultParamType : normalize_annotation(param.type_annotation);
             param_types.push_back(pt);
         }
-        functions_.emplace(func_def->name, FunctionSig{std::move(param_types), func_def->return_type});
+        functions_.emplace(func_def->name, FunctionSig{std::move(param_types), normalize_annotation(func_def->return_type)});
     }
 }
 
@@ -307,6 +307,19 @@ void SemanticAnalyzer::validate_no_duplicates(const std::vector<Parameter>& para
         }
         names.insert(param.name);
     }
+}
+
+std::string SemanticAnalyzer::normalize_annotation(const std::string& annotation) {
+    if (annotation.empty()) return annotation;
+    std::vector<std::string> func_param_types;
+    std::string func_return_type;
+    if (TypeTable::parse_functional_annotation(annotation, &func_param_types, &func_return_type)) {
+        for (auto& pt : func_param_types) pt = normalize_annotation(pt);
+        func_return_type = normalize_annotation(func_return_type);
+        type_table_.ensure_functor_type(func_param_types, func_return_type);
+        return TypeTable::make_functor_type_name(func_param_types, func_return_type);
+    }
+    return annotation;
 }
 
 void SemanticAnalyzer::ensure_type_registered(const std::string& type_name, int line) {
@@ -567,8 +580,12 @@ std::string SemanticAnalyzer::visit(LetBinding& node) {
                                                        "binding let " + node.name);
     std::string final_type = init_type;
     if (!node.type_annotation.empty()) {
-        ensure_conforms(init_type, node.type_annotation, binding_line, "binding let " + node.name);
-        final_type = node.type_annotation;
+        // Register on-demand types (functor/iterable/vector) named in the annotation
+        // before checking conformance, otherwise conforms_to() throws on them.
+        ensure_type_registered(node.type_annotation, binding_line);
+        const std::string annotated = normalize_annotation(node.type_annotation);
+        ensure_conforms(init_type, annotated, binding_line, "binding let " + node.name);
+        final_type = annotated;
     }
     symbols_.define(node.name, final_type, binding_line);
     return final_type;
@@ -705,7 +722,7 @@ std::string SemanticAnalyzer::visit(FuncDef& node) {
     context_.enter_function(node.name);
     symbols_.enter_scope();
     for (const auto& param : node.params) {
-        const std::string pt = param.type_annotation.empty() ? kDefaultParamType : param.type_annotation;
+        const std::string pt = param.type_annotation.empty() ? kDefaultParamType : normalize_annotation(param.type_annotation);
         ensure_type_registered(pt, node.line);
         symbols_.define(param.name, pt, node.line);
     }
@@ -715,8 +732,10 @@ std::string SemanticAnalyzer::visit(FuncDef& node) {
     std::string result_type = body_type.empty() ? kObjectType : body_type;
 
     if (!node.return_type.empty()) {
-        ensure_conforms(result_type, node.return_type, node.line, "retorno de función");
-        result_type = node.return_type;
+        const std::string ret = normalize_annotation(node.return_type);
+        ensure_type_registered(node.return_type, node.line);
+        ensure_conforms(result_type, ret, node.line, "retorno de función");
+        result_type = ret;
     }
 
     auto it = functions_.find(node.name);
@@ -741,7 +760,7 @@ std::string SemanticAnalyzer::visit(TypeDef& node) {
         symbols_.enter_scope();
         // Constructor (type) arguments are in scope for attribute initializers (spec A.7.2).
         for (const auto& param : node.type_params) {
-            const std::string pt = param.type_annotation.empty() ? kObjectType : param.type_annotation;
+            const std::string pt = param.type_annotation.empty() ? kObjectType : normalize_annotation(param.type_annotation);
             symbols_.define(param.name, pt, attr->line);
         }
         const std::string init_type = require_inferred_type(analyze_expr(attr->initializer.get()),
@@ -774,7 +793,7 @@ std::string SemanticAnalyzer::visit(TypeDef& node) {
         std::vector<std::string> param_types;
         param_types.reserve(method->params.size());
         for (const auto& param : method->params) {
-            const std::string pt = param.type_annotation.empty() ? kDefaultParamType : param.type_annotation;
+            const std::string pt = param.type_annotation.empty() ? kDefaultParamType : normalize_annotation(param.type_annotation);
             ensure_type_registered(pt, method->line);
             symbols_.define(param.name, pt, method->line);
             param_types.push_back(pt);
@@ -1209,7 +1228,7 @@ std::string SemanticAnalyzer::visit(LambdaExpr& node) {
     // === Paso 3: verificar tipos del cuerpo en un scope con los parámetros ===
     symbols_.enter_scope();
     for (const auto& p : node.params) {
-        const std::string pt = p.type_annotation.empty() ? kObjectType : p.type_annotation;
+        const std::string pt = p.type_annotation.empty() ? kObjectType : normalize_annotation(p.type_annotation);
         ensure_type_registered(pt, node.line);
         symbols_.define(p.name, pt, node.line);
     }
@@ -1267,7 +1286,7 @@ std::string SemanticAnalyzer::visit(LambdaExpr& node) {
 
     std::vector<std::string> invoke_param_types;
     for (const auto& p : node.params)
-        invoke_param_types.push_back(p.type_annotation.empty() ? kObjectType : p.type_annotation);
+        invoke_param_types.push_back(p.type_annotation.empty() ? kObjectType : normalize_annotation(p.type_annotation));
 
     std::vector<std::unique_ptr<MethodDef>> methods;
     methods.push_back(std::make_unique<MethodDef>(

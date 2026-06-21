@@ -50,12 +50,14 @@ DOLLAR_ID       "$"{LETTER}({LETTER}|{DIGIT}|_)*
 "is"                    { column_number += yyleng; return TOK_IS; }
 "as"                    { column_number += yyleng; return TOK_AS; }
 "protocol"              { column_number += yyleng; return TOK_PROTOCOL; }
+"interface"             { column_number += yyleng; return TOK_PROTOCOL; }
 "extends"               { column_number += yyleng; return TOK_EXTENDS; }
 
 "true"                  { column_number += yyleng; return TOK_TRUE; }
 "false"                 { column_number += yyleng; return TOK_FALSE; }
 
 "def"                   { column_number += yyleng; return TOK_DEF; }
+"define"                { column_number += yyleng; return TOK_DEF; }
 "match"                 { column_number += yyleng; return TOK_MATCH; }
 "case"                  { column_number += yyleng; return TOK_CASE; }
 "default"               { column_number += yyleng; return TOK_DEFAULT; }

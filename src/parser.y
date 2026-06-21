@@ -123,6 +123,11 @@ std::vector<std::unique_ptr<T>> to_unique_vec(std::vector<T*>* src) {
 %nonassoc TOK_IN
 %nonassoc TOK_ELSE
 %right TOK_ASSIGN
+/* Lambda/inline-body arrows bind looser than every binary operator so that the
+   body extends maximally to the right: `f -> a * 2` is `f -> (a*2)`, never
+   `(f -> a) * 2`. Without this the lambda (a primary_expr) and the surrounding
+   operator create a genuine GLR ambiguity. */
+%right TOK_ARROW TOK_TYPE_ARROW
 %left '|'
 %left '&'
 %right '!'
@@ -176,6 +181,8 @@ function_definition:
 
 macro_definition:
     TOK_DEF IDENTIFIER '(' macro_params_list ')' opt_return_type TOK_ARROW expression ';'
+    { $$ = new MacroDef($2, std::move(*$4), $6 ? $6 : "", std::unique_ptr<Expr>($8), line_number); delete $4; }
+    | TOK_DEF IDENTIFIER '(' macro_params_list ')' opt_return_type TOK_TYPE_ARROW expression ';'
     { $$ = new MacroDef($2, std::move(*$4), $6 ? $6 : "", std::unique_ptr<Expr>($8), line_number); delete $4; }
     | TOK_DEF IDENTIFIER '(' macro_params_list ')' opt_return_type block_expr opt_semicolon
     { $$ = new MacroDef($2, std::move(*$4), $6 ? $6 : "", std::unique_ptr<Expr>($7), line_number); delete $4; }
@@ -279,6 +286,15 @@ expression:
 assign_expr:
     IDENTIFIER TOK_ASSIGN assign_expr { $$ = new AssignExpr($1, std::unique_ptr<Expr>($3), line_number, column_number); }
     | postfix_expr '.' IDENTIFIER TOK_ASSIGN assign_expr { $$ = new AssignExpr(std::unique_ptr<Expr>($1), $3, std::unique_ptr<Expr>($5), line_number, column_number); }
+    /* Lambdas live at the assignment level (not primary_expr) so the body extends
+       maximally to the right and the lambda itself cannot become an operand of a
+       binary operator — which would create a genuine `f -> a * b` ambiguity. */
+    | '(' ')' opt_return_type TOK_ARROW assign_expr
+    { $$ = new LambdaExpr(std::vector<Parameter>(), $3 ? $3 : "", std::unique_ptr<Expr>($5), line_number, column_number); }
+    | '(' params_list_not_empty ')' opt_return_type TOK_ARROW assign_expr
+    { $$ = new LambdaExpr(*$2, $4 ? $4 : "", std::unique_ptr<Expr>($6), line_number, column_number); delete $2; }
+    | TOK_FUNCTION '(' params_list ')' opt_return_type TOK_TYPE_ARROW assign_expr
+    { $$ = new LambdaExpr(*$3, $5 ? $5 : "", std::unique_ptr<Expr>($7), line_number, column_number); delete $3; }
     | let_expr { $$ = $1; }
     ;
 
@@ -418,27 +434,6 @@ primary_expr:
     | TOK_BASE '(' opt_expression_list ')' { $$ = new BaseCall(to_unique_vec($3), line_number, column_number); }
     | TOK_SELF { $$ = new SelfRef(line_number, column_number); }
     | '(' expression ')' { $$ = $2; }
-    | '(' ')' opt_return_type TOK_ARROW expression
-    {
-        $$ = new LambdaExpr(
-            std::vector<Parameter>(),
-            $3 ? $3 : "",
-            std::unique_ptr<Expr>($5),
-            line_number,
-            column_number
-        );
-    }
-    | '(' params_list_not_empty ')' opt_return_type TOK_ARROW expression
-    {
-        $$ = new LambdaExpr(
-            *$2,
-            $4 ? $4 : "",
-            std::unique_ptr<Expr>($6),
-            line_number,
-            column_number
-        );
-        delete $2;
-    }
     | block_expr { $$ = $1; }
     | '[' opt_vector_elements ']' { $$ = new VectorLiteral(to_unique_vec($2), line_number, column_number); }
     | '[' comp_expr '|' IDENTIFIER TOK_IN expression opt_vector_filter ']'

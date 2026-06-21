@@ -75,6 +75,9 @@ private:
     std::string analyze_expr(Expr* expr);
     void register_builtins();
     void ensure_type_registered(const std::string& type_name, int line);
+    // Convert a functional annotation `_FuncType(T1,T2)->R` to its canonical
+    // registered functor type name; returns other annotations unchanged.
+    std::string normalize_annotation(const std::string& annotation);
     std::string resolve_attribute_type(const std::string& type_name, const std::string& attribute, int line);
     MethodSig resolve_method_sig(const std::string& type_name, const std::string& method, int line);
     void ensure_conforms(const std::string& actual,
