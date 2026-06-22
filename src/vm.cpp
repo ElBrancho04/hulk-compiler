@@ -526,10 +526,33 @@ void VM::execute(BytecodeProgram& program) {
                 Value top = popValue();
                 if (top.type == ValueType::Object && top.object_value) {
                     auto range = std::dynamic_pointer_cast<HulkRange>(top.object_value);
-                    if (!range) {
-                        throw RuntimeError("Expected iterable for ITER_NEXT");
+                    if (range) {
+                        stack_.push_back(range->next());
+                    } else {
+                        // Llamada a método next() en iterables personalizados
+                        std::string symbol = top.object_value->type_name + ".next";
+                        auto it = program.function_table.find(symbol);
+                        if (it == program.function_table.end()) {
+                            auto anc_it = program.type_ancestors.find(top.object_value->type_name);
+                            if (anc_it != program.type_ancestors.end()) {
+                                for (const auto& ancestor : anc_it->second) {
+                                    auto cand = program.function_table.find(ancestor + ".next");
+                                    if (cand != program.function_table.end()) {
+                                        it = cand;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (it == program.function_table.end()) {
+                            throw RuntimeError("Unknown method: " + symbol);
+                        }
+                        call_stack_.push_back({ip_ + 1, current_env_, current_self_});
+                        current_env_ = std::make_shared<Environment>(global_env_);
+                        current_self_ = top;
+                        ip_ = it->second;
+                        advance_ip = false;
                     }
-                    stack_.push_back(range->next());
                 } else if (top.type == ValueType::Vector && top.vector_value) {
                     stack_.push_back(top.vector_value->next());
                 } else {
@@ -541,10 +564,33 @@ void VM::execute(BytecodeProgram& program) {
                 Value top = popValue();
                 if (top.type == ValueType::Object && top.object_value) {
                     auto range = std::dynamic_pointer_cast<HulkRange>(top.object_value);
-                    if (!range) {
-                        throw RuntimeError("Expected iterable for ITER_CURRENT");
+                    if (range) {
+                        stack_.push_back(range->current());
+                    } else {
+                        // Llamada a método current() en iterables personalizados
+                        std::string symbol = top.object_value->type_name + ".current";
+                        auto it = program.function_table.find(symbol);
+                        if (it == program.function_table.end()) {
+                            auto anc_it = program.type_ancestors.find(top.object_value->type_name);
+                            if (anc_it != program.type_ancestors.end()) {
+                                for (const auto& ancestor : anc_it->second) {
+                                    auto cand = program.function_table.find(ancestor + ".current");
+                                    if (cand != program.function_table.end()) {
+                                        it = cand;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (it == program.function_table.end()) {
+                            throw RuntimeError("Unknown method: " + symbol);
+                        }
+                        call_stack_.push_back({ip_ + 1, current_env_, current_self_});
+                        current_env_ = std::make_shared<Environment>(global_env_);
+                        current_self_ = top;
+                        ip_ = it->second;
+                        advance_ip = false;
                     }
-                    stack_.push_back(range->current());
                 } else if (top.type == ValueType::Vector && top.vector_value) {
                     stack_.push_back(top.vector_value->current());
                 } else {

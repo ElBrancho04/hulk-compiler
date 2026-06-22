@@ -644,6 +644,14 @@ std::string SemanticAnalyzer::visit(ForExpr& node) {
         // ok
     } else if (TypeTable::is_vector_type(iterable_type, &element_type)) {
         // treat vector as iterable
+    } else if (type_table_.conforms_to(iterable_type, "Iterable")) {
+        // Permite tipos definidos por el usuario que implementan el protocolo Iterable
+        try {
+            MethodSig current_sig = resolve_method_sig(iterable_type, "current", node.line);
+            element_type = current_sig.return_type.empty() ? kObjectType : current_sig.return_type;
+        } catch (...) {
+            throw SemanticError(node.line, "el for espera un iterable (con método current()), se obtuvo: " + iterable_type);
+        }
     } else {
         throw SemanticError(node.line, "el for espera un iterable, se obtuvo: " + iterable_type);
     }
@@ -1001,6 +1009,13 @@ std::string SemanticAnalyzer::visit(VectorComprehension& node) {
         // ok
     } else if (TypeTable::is_vector_type(iterable_type, &element_type)) {
         // treat vector as iterable
+    } else if (type_table_.conforms_to(iterable_type, "Iterable")) {
+        try {
+            MethodSig current_sig = resolve_method_sig(iterable_type, "current", node.line);
+            element_type = current_sig.return_type.empty() ? kObjectType : current_sig.return_type;
+        } catch (...) {
+            throw SemanticError(node.line, "comprensión espera iterable (con método current()), se obtuvo: " + iterable_type);
+        }
     } else {
         throw SemanticError(node.line, "comprensión espera iterable, se obtuvo: " + iterable_type);
     }
@@ -1023,6 +1038,13 @@ std::string SemanticAnalyzer::visit(VectorComprehensionFilter& node) {
         // ok
     } else if (TypeTable::is_vector_type(iterable_type, &element_type)) {
         // treat vector as iterable
+    } else if (type_table_.conforms_to(iterable_type, "Iterable")) {
+        try {
+            MethodSig current_sig = resolve_method_sig(iterable_type, "current", node.line);
+            element_type = current_sig.return_type.empty() ? kObjectType : current_sig.return_type;
+        } catch (...) {
+            throw SemanticError(node.line, "comprensión espera iterable (con método current()), se obtuvo: " + iterable_type);
+        }
     } else {
         throw SemanticError(node.line, "comprensión espera iterable, se obtuvo: " + iterable_type);
     }

@@ -7,4 +7,8 @@ parser.cpp
 parser.hpp
 location.hh
 stack.hh
+hulk
+hulk-vm
+compiled.asm
+output
 .github/copilot-instructions.md
