@@ -31,7 +31,7 @@ void collect_all_var_names(Expr* expr, std::unordered_set<std::string>& out) {
     if (auto* n = dynamic_cast<IfExpr*>(expr))       { for (auto& b : n->branches) { collect_all_var_names(b.condition.get(), out); collect_all_var_names(b.body.get(), out); } collect_all_var_names(n->else_body.get(), out); return; }
     if (auto* n = dynamic_cast<WhileExpr*>(expr))    { collect_all_var_names(n->condition.get(), out); collect_all_var_names(n->body.get(), out); return; }
     if (auto* n = dynamic_cast<ForExpr*>(expr))      { collect_all_var_names(n->iterable.get(), out); collect_all_var_names(n->body.get(), out); return; }
-    if (auto* n = dynamic_cast<FuncCall*>(expr))     { for (auto& a : n->args) collect_all_var_names(a.get(), out); return; }
+    if (auto* n = dynamic_cast<FuncCall*>(expr))     { out.insert(n->name); for (auto& a : n->args) collect_all_var_names(a.get(), out); return; }
     if (auto* n = dynamic_cast<MethodCall*>(expr))   { collect_all_var_names(n->object.get(), out); for (auto& a : n->args) collect_all_var_names(a.get(), out); return; }
     if (auto* n = dynamic_cast<MemberAccess*>(expr)) { collect_all_var_names(n->object.get(), out); return; }
     if (auto* n = dynamic_cast<NewExpr*>(expr))      { for (auto& a : n->args) collect_all_var_names(a.get(), out); return; }

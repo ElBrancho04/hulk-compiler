@@ -134,7 +134,7 @@ bool TypeTable::conforms_to(const std::string& derived, const std::string& targe
             return false;
         }
     }
-    if (is_vector_type(target) || is_iterable_type(target)) {
+    if ((is_vector_type(target) || is_iterable_type(target)) && !has_protocol(target)) {
         return false;
     }
 
