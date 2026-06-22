@@ -1,0 +1,935 @@
+\documentclass[12pt,letterpaper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla]{babel}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{float}
+\usepackage{graphicx}
+\usepackage{amsmath}
+
+\geometry{margin=2.5cm}
+\setlength{\parskip}{0.55em}
+\setlength{\parindent}{0pt}
+\emergencystretch=2em
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+\definecolor{codegray}{gray}{0.96}
+\definecolor{keywordblue}{rgb}{0.05,0.19,0.45}
+
+\lstdefinelanguage{HULK}{
+    keywords={function,define,def,type,inherits,new,self,base,let,in,true,false,if,elif,else,while,for,is,as,protocol,interface,extends,match,case,default,print},
+    sensitive=true,
+    comment=[l]{//},
+    string=[b]"
+}
+
+\lstdefinelanguage{BYTE}{
+    keywords={PUSH_CONST,LOAD,STORE,ASSIGN,POP,BEGIN_SCOPE,POP_SCOPE,ADD,SUB,MUL,DIV,POW,MOD,NEG,NOT,AND,OR,CONCAT,CMP_EQ,CMP_NEQ,CMP_LT,CMP_GT,CMP_LE,CMP_GE,JUMP,JUMP_IF_FALSE,JUMP_IF_TRUE,LABEL,RETURN,HALT,CALL,NEW,GET_ATTR,SET_ATTR,SELF,METHOD_CALL,BASE_CALL,IS,AS,NEW_VECTOR,VECTOR_PUSH,VECTOR_INDEX,VECTOR_STORE,SIZE,ITER_NEXT,ITER_CURRENT,RANGE},
+    sensitive=true,
+    comment=[l]{\#},
+    string=[b]"
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{keywordblue},
+    backgroundcolor=\color{codegray},
+    breaklines=true,
+    frame=single,
+    columns=fullflexible,
+    keepspaces=true,
+    showstringspaces=false,
+    literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1 {Á}{{\'A}}1 {É}{{\'E}}1 {Í}{{\'I}}1 {Ó}{{\'O}}1 {Ú}{{\'U}}1 {ñ}{{\~n}}1 {Ñ}{{\~N}}1
+}
+
+\newcommand{\repo}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\hulk}{\textsc{HULK}}
+
+\title{Informe Final del Compilador de \hulk\\
+\large Frontend con Flex/Bison, análisis semántico, generación de bytecode,
+máquina virtual de pila y extensión de lenguaje mediante macros}
+
+\author{
+Ronald Alfonso Pérez , Abraham Rey Sánchez Amador, Rodrigo Meseros González\\[0.5em]
+\textit{Proyecto de Compilación / Lenguajes de Programación}\\
+\textit{Universidad de La Habana}
+}
+
+\date{22 de junio de 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Este informe presenta el diseño y la implementación de un compilador para \hulk{}
+construido en C++ como un sistema por fases: análisis léxico generado con Flex,
+análisis sintáctico generado con Bison en modo GLR, construcción de un AST,
+una fase de expansión de macros y desazucarado, análisis semántico en varias
+pasadas, generación de un bytecode propio y una máquina virtual de pila que
+ejecuta dicho bytecode. El énfasis del documento no está solo en enumerar
+componentes del repositorio, sino en justificar las decisiones de diseño tomadas
+en cada frontera del compilador: por qué se usan generadores (Flex/Bison) en
+lugar de un analizador manual, por qué el parser se declara GLR, por qué las
+macros y \repo{match} se resuelven como transformaciones AST$\to$AST antes de la
+semántica, por qué se define un bytecode propio en lugar de emitir ensamblador o
+LLVM, y por qué la ejecución se delega a una máquina virtual de pila enlazada a
+través de un artefacto intermedio. Desde la perspectiva de Lenguajes de
+Programación, la extensión propia principal es un \emph{sistema de macros
+sintácticas} con parámetros por valor y de bloque, higiene mediante
+\repo{$}-placeholders y expansión recursiva acotada, complementado por la
+construcción \repo{match} con desazucarado a primitivas existentes. El objetivo
+del informe es presentar de forma formal el alcance técnico del compilador, las
+garantías estáticas que ofrece, los compromisos asumidos y las limitaciones que
+quedan como trabajo futuro. El sistema supera el 100\,\% de la batería de pruebas
+de entrega final (115/115).
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Introducción}
+
+Construir un compilador para \hulk{} no consiste solamente en transformar texto
+de entrada en otro texto de salida. El objetivo central es preservar el
+significado de un programa a través de varias capas de representación. Un
+programa fuente con expresiones, funciones, objetos, herencia, protocolos,
+vectores, iterables, lambdas y una extensión como las macros debe convertirse
+gradualmente en estructuras internas verificables y, finalmente, en una forma
+ejecutable.
+
+El sistema implementa una arquitectura por fases. Primero, el frontend reconoce
+tokens y estructura sintáctica; después, el AST elimina detalles de la gramática
+concreta; luego, una fase de expansión transforma macros y \repo{match} en
+construcciones del núcleo del lenguaje; a continuación, la fase semántica
+resuelve nombres, ámbitos, tipos, atributos, métodos, \repo{self}, \repo{base} y
+builtins, y transpila las lambdas a tipos funtores; más adelante, el generador de
+código produce un bytecode propio; finalmente, ese bytecode se serializa y se
+ejecuta sobre una máquina virtual de pila.
+
+El compilador se materializa en dos ejecutables construidos con CMake:
+\repo{hulk}, que realiza todas las fases de compilación hasta producir el
+bytecode, y \repo{hulk-vm}, que ejecuta el bytecode serializado. Esta separación
+es importante desde el punto de vista académico: el sistema no se comporta como
+una caja negra, sino como un conjunto de transformaciones observables, donde el
+artefacto intermedio entre compilador y máquina virtual puede inspeccionarse.
+
+Este informe no se organiza como una descripción cronológica del repositorio ni
+como una lista de archivos. Su estructura sigue una idea de diseño: en cada fase
+se explica qué problema debía resolverse, qué alternativas existían, qué decisión
+se adoptó y qué consecuencias tiene esa decisión para las fases posteriores. La
+arquitectura en C++ se presenta como soporte físico de la implementación; el
+centro del análisis son las decisiones de compilación y de diseño de lenguaje.
+
+Desde Lenguajes de Programación, el aporte propio principal es el sistema de
+macros. Esta construcción introduce una forma de metaprogramación a nivel de
+sintaxis: el programador define plantillas de código reutilizable que el
+compilador expande antes de analizar el programa. Su relevancia no es únicamente
+sintáctica: modifica el AST, introduce parámetros por valor y de bloque, requiere
+una estrategia de higiene para evitar captura de variables y exige control de
+recursión durante la expansión. La construcción \repo{match} acompaña a las
+macros como azúcar sintáctica para clasificación por tipo dinámico, resuelta
+mediante desazucarado a \repo{let}, \repo{if} e \repo{is}.
+
+% ============================================================
+\section{Alcance del compilador}
+
+\subsection{Propósito general}
+
+El propósito del compilador es transformar programas escritos en \hulk{} en un
+bytecode propio y, posteriormente, ejecutarlo sobre una máquina virtual de pila.
+Para lograrlo, el sistema no realiza una traducción directa desde el código
+fuente hasta instrucciones de máquina, sino una sucesión de representaciones con
+responsabilidades separadas: tokens, AST, AST expandido (sin macros ni
+\repo{match}), AST verificado y anotado, bytecode y, finalmente, ejecución.
+
+Esta separación permite que cada fase tenga un contrato claro. El frontend debe
+reconocer la estructura del programa; la expansión debe eliminar las
+construcciones de azúcar; la semántica debe rechazar programas inválidos y anotar
+tipos; el generador debe producir bytecode correcto; y la máquina virtual debe
+ejecutar ese bytecode con un modelo de valores y objetos bien definido.
+
+\subsection{Lenguaje soportado}
+
+El compilador cubre el núcleo expresivo de \hulk{} y varios mecanismos avanzados.
+El lenguaje soportado incluye literales numéricos, booleanos y de cadena;
+operadores aritméticos, booleanos, de comparación y de concatenación (\repo{@},
+\repo{@@}); bloques; variables con \repo{let}; asignación destructiva
+(\repo{:=}); condicionales con \repo{if}/\repo{elif}/\repo{else}; ciclos
+\repo{while} y \repo{for}; funciones globales; llamadas recursivas; objetos con
+atributos y métodos; herencia simple; despacho dinámico de métodos; \repo{self};
+\repo{base}; pruebas dinámicas de tipo con \repo{is}; \emph{casts} con \repo{as};
+protocolos estructurales; vectores con literales, indexación y comprensiones;
+iterables y \repo{range}; lambdas y \emph{closures}; macros con \repo{define}; y
+expresiones \repo{match}.
+
+La expresión final del archivo funciona como punto de entrada del programa. Este
+rasgo obliga a tratar condicionales, ciclos, bloques, llamadas y \repo{match}
+como expresiones con tipo y valor resultante, no solo como instrucciones. Por
+tanto, el análisis semántico calcula tipos para expresiones compuestas y la
+generación de código preserva el valor producido por cada construcción.
+
+\begin{lstlisting}[language=HULK,caption={Programa con funciones, objetos, herencia y despacho dinámico}]
+function square(x: Number): Number => x * x;
+
+type Shape() {
+    area(): Number => 0;
+}
+
+type Circle(r: Number) inherits Shape {
+    r: Number = r;
+    area(): Number => 3 * square(self.r);
+}
+
+let s: Shape = new Circle(4) in print(s.area());
+\end{lstlisting}
+
+\subsection{Alcance técnico}
+
+El compilador principal está implementado en C++ y se construye con CMake usando
+Flex para el analizador léxico y Bison para el analizador sintáctico. La
+estructura física del repositorio refleja las fases del compilador. Sin embargo,
+esta división no es el objetivo central del diseño, sino un medio para mantener
+límites claros entre responsabilidades.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{p{4.2cm}X}
+\toprule
+\textbf{Componente} & \textbf{Responsabilidad principal} \\
+\midrule
+\repo{src/lexer.l} & Especificación Flex del analizador léxico; tokens, literales, comentarios, seguimiento de línea/columna y errores léxicos. \\
+\repo{src/parser.y} & Gramática Bison (GLR); precedencias, estructura de declaraciones y expresiones, construcción directa del AST. \\
+\repo{include/ast.hpp} & Jerarquía de nodos del AST y patrón \emph{visitor}. \\
+\repo{src/macro_expander.cpp} & Expansión de macros y desazucarado de \repo{match} (transformación AST$\to$AST). \\
+\repo{src/semantic_analyzer.cpp} & Resolución de nombres, registro de tipos, chequeo semántico, inferencia acotada y transpilación de lambdas. \\
+\repo{src/type_table.cpp} & Tabla de tipos, subtipado, conformidad de protocolos y tipos sintéticos (\repo{Vector}, \repo{Iterable}, funtores). \\
+\repo{src/code_generator.cpp} & Generación de bytecode desde el AST verificado. \\
+\repo{include/bytecode.hpp} & Definición del conjunto de instrucciones y del programa de bytecode. \\
+\repo{src/serialize.cpp} & Serialización/deserialización binaria del bytecode. \\
+\repo{src/vm.cpp} & Máquina virtual de pila que ejecuta el bytecode. \\
+\repo{src/main.cpp} / \repo{src/vm_main.cpp} & Controladores de \repo{hulk} y \repo{hulk-vm}. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Pipeline de alto nivel}
+
+El pipeline completo puede resumirse de la siguiente manera:
+
+\begin{lstlisting}[language=BYTE,caption={Pipeline conceptual del compilador}]
+archivo .hulk
+  -> lexer Flex                      # tokens con linea/columna
+  -> parser Bison GLR                # AST (Program*)
+  -> MacroExpander                   # expande macros, desazucara match
+  -> SemanticAnalyzer                # 3 pasadas; tipa y transpila lambdas
+  -> CodeGenerator                   # BytecodeProgram (codigo + constantes + tablas)
+  -> serialize -> compiled.asm       # bytecode binario (magic "HULK")
+  -> ./output (script bash)          # ejecuta ./hulk-vm compiled.asm
+  -> hulk-vm                         # deserializa y ejecuta en la VM de pila
+\end{lstlisting}
+
+El diseño se apoya en una idea clásica de compilación: no intentar resolver todos
+los problemas en una sola representación. El AST es cómodo para semántica, pero
+demasiado alto nivel para ejecutar; el bytecode es adecuado para una máquina
+virtual, pero demasiado bajo nivel para razonar sobre tipos. Por eso se introducen
+fronteras intermedias, y las construcciones de azúcar (macros, \repo{match},
+lambdas) se eliminan antes de llegar al bytecode.
+
+El controlador \repo{hulk} distingue las fases mediante \emph{códigos de salida},
+lo que permite su uso en correctores automáticos:
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{p{3.0cm}p{2.2cm}X}
+\toprule
+\textbf{Fase} & \textbf{Código} & \textbf{Significado} \\
+\midrule
+Léxico & 1 & Error léxico (\repo{lexical_errors_count > 0}). \\
+Sintáctico / Macro & 2 & Error sintáctico o de expansión de macros. \\
+Semántico & 3 & Error de análisis semántico. \\
+Éxito & 0 & Se generó \repo{compiled.asm} y \repo{./output}. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ============================================================
+\section{Frontend}
+
+El frontend transforma una secuencia de caracteres en una representación
+estructurada del programa. Esta fase resuelve dos problemas diferentes. El
+primero es léxico: identificar palabras clave, operadores, delimitadores,
+identificadores, literales, comentarios y espacios. El segundo es sintáctico:
+reconocer cómo esos tokens forman declaraciones, expresiones, tipos, protocolos,
+bloques y patrones.
+
+\subsection{Decisión léxica: lexer generado con Flex}
+
+El analizador léxico se especifica con Flex en \repo{src/lexer.l}. Esta decisión
+es adecuada porque el conjunto léxico de \hulk{} no se reduce a identificadores y
+números. El lenguaje contiene palabras clave (\repo{function}, \repo{define},
+\repo{type}, \repo{inherits}, \repo{new}, \repo{self}, \repo{base}, \repo{let},
+\repo{if}, \repo{elif}, \repo{else}, \repo{while}, \repo{for}, \repo{protocol},
+\repo{interface}, \repo{extends}, \repo{is}, \repo{as}, \repo{match},
+\repo{case}, \repo{default}); operadores de varios caracteres (\repo{@@},
+\repo{@}, \repo{==}, \repo{!=}, \repo{<=}, \repo{>=}, \repo{:=}, \repo{=>},
+\repo{->}); delimitadores; literales numéricos (enteros y flotantes, incluyendo
+la forma \repo{.5}); literales de cadena con secuencias de escape; comentarios de
+línea \repo{//}; e identificadores, incluyendo identificadores con prefijo
+\repo{$} usados por el sistema de macros.
+
+Un lexer manual daría control fino sobre cada caso, pero haría que la definición
+del lenguaje quedara dispersa en código imperativo. Al usar Flex, la
+especificación léxica se vuelve declarativa: las reglas que describen tokens se
+mantienen separadas del código que los consume. Desde el punto de vista teórico,
+esta decisión conecta la implementación con la idea de autómatas finitos y
+expresiones regulares para el reconocimiento léxico.
+
+El lexer mantiene un seguimiento explícito de posición mediante las variables
+globales \repo{line_number} y \repo{column_number}: cada token incrementa la
+columna según su longitud y los saltos de línea reinician la columna. Esta
+información se propaga al parser y al AST, lo que permite que todos los
+diagnósticos posteriores indiquen \repo{(línea,columna)}.
+
+Los errores léxicos se reportan con un formato uniforme y se contabilizan en
+\repo{lexical_errors_count}; entre ellos están la secuencia de escape inválida, la
+cadena sin cerrar (en fin de línea o de archivo) y el carácter inesperado:
+
+\begin{lstlisting}[language=BYTE,caption={Formato de error léxico}]
+(linea,columna) LEXICAL: unexpected character 'X'
+(linea,columna) LEXICAL: unterminated string literal
+\end{lstlisting}
+
+\subsection{Decisión sintáctica: Bison en modo GLR}
+
+El analizador sintáctico se especifica con Bison en \repo{src/parser.y} y se
+declara \repo{\%glr-parser}. La elección de GLR (Generalized LR) en lugar de LALR
+puro es deliberada: \hulk{} es un lenguaje basado en expresiones con construcciones
+que generan conflictos de desplazamiento/reducción difíciles de eliminar por
+completo en LALR (por ejemplo, lambdas como operandos, o construcciones de control
+que pueden aparecer como operando derecho de un binario). GLR permite que el
+generador conserve varias derivaciones cuando una decisión no puede resolverse
+localmente, y resuelve la mayoría de los conflictos mediante las declaraciones de
+precedencia y asociatividad.
+
+La gramática define una escalera de precedencia explícita, de menor a mayor poder
+de enlace: \repo{in} y \repo{else}; asignación \repo{:=}; flechas \repo{=>} y
+\repo{->}; disyunción \repo{|}; conjunción \repo{&}; negación \repo{!};
+comparaciones y \repo{is}/\repo{as} (no asociativas, lo que impide encadenarlas);
+concatenación \repo{@}/\repo{@@}; suma y resta; multiplicación, división y módulo;
+potencia \repo{^}; y negación unaria. Esta declaración hace explícito el diseño de
+precedencias y evita multiplicar reglas intermedias.
+
+La estructura general distingue declaraciones de nivel superior (funciones, tipos,
+protocolos y macros) de la expresión global final. Las expresiones se organizan en
+una jerarquía descendente (\repo{assign\_expr}, \repo{or\_expr}, \dots,
+\repo{primary\_expr}) coherente con la escalera de precedencia.
+
+\paragraph{Construcciones de control como operando derecho.} Una decisión de
+diseño reciente y relevante es permitir que \repo{if}, \repo{while}, \repo{for} y
+\repo{match} aparezcan como operando \emph{derecho} de un operador binario, de modo
+que expresiones como
+\begin{lstlisting}[language=HULK]
+evens := evens + if (i % 2 == 0) 1 else 0;
+\end{lstlisting}
+sean válidas. La solución adoptada agrupa estas construcciones en un no terminal
+\repo{flow\_expr} que \emph{no} es un \repo{primary\_expr} (para que no puedan ser
+operando \emph{izquierdo}, lo que volvería ambiguo \repo{if (c) x else a + b}) y se
+añade explícitamente como operando derecho de cada nivel binario. Como cada
+construcción comienza con una palabra clave distinta, el reconocimiento es
+determinista y el cuerpo de la construcción se extiende de forma \emph{greedy}
+hacia la derecha, preservando la semántica esperada. Esta decisión fue necesaria
+para superar el último caso de la batería de pruebas.
+
+Los errores sintácticos se reportan con un formato uniforme que incluye posición y
+el token problemático:
+
+\begin{lstlisting}[language=BYTE,caption={Formato de error sintáctico}]
+(linea,columna) SYNTACTIC: <mensaje> near '<token>'
+\end{lstlisting}
+
+\subsection{AST como frontera entre sintaxis y semántica}
+
+El AST (\repo{include/ast.hpp}) es la primera representación estable del lenguaje.
+El parser construye directamente nodos de AST; no se mantiene un CST explícito
+separado, sino estructuras temporales de \emph{parsing} que se convierten en
+vectores de punteros únicos antes de armar los nodos finales. Esta separación evita
+que la fase semántica dependa de detalles accidentales de la gramática.
+
+El AST emplea un patrón \emph{visitor} genérico (\repo{Visitor<T>}) con un método
+\repo{visit} por cada tipo de nodo. Existen alrededor de treinta tipos de nodos,
+agrupados en: nodos de expresión (literales, \repo{BinaryExpr}, \repo{UnaryExpr},
+\repo{VarRef}, \repo{AssignExpr}, \repo{BlockExpr}, \repo{IfExpr},
+\repo{WhileExpr}, \repo{ForExpr}, \repo{LetExpr}, \repo{LambdaExpr},
+\repo{FuncCall}, \repo{MethodCall}, \repo{MemberAccess}, \repo{NewExpr},
+\repo{VectorLiteral}, comprensiones, \repo{VectorIndex}, \repo{ArrayNewExpr},
+\repo{ArrayAssignExpr}, \repo{IsExpr}, \repo{AsExpr}, \repo{SelfRef},
+\repo{BaseCall}); nodos de declaración (\repo{FuncDef}, \repo{TypeDef},
+\repo{AttributeDef}, \repo{MethodDef}, \repo{ProtocolDef}, \repo{MacroDef}); y el
+nodo raíz \repo{Program}, que agrupa tipos, protocolos, funciones, macros y la
+expresión global.
+
+Dos nodos tienen un comportamiento especial que documenta una decisión de diseño:
+\repo{MacroInvoke} y \repo{MatchExpr} \emph{lanzan una excepción} si se les invoca
+\repo{accept()}. Esto garantiza, por construcción, que ambos deben haber sido
+eliminados por la fase de expansión antes de llegar a la semántica o a la
+generación de código. El compilador no permite, por diseño, que una macro o un
+\repo{match} sin expandir alcancen fases posteriores.
+
+% ============================================================
+\section{Análisis semántico}
+
+Después del frontend y de la expansión, el compilador conoce la estructura del
+programa, pero todavía no sabe si esa estructura tiene sentido. La fase semántica
+(\repo{src/semantic_analyzer.cpp}) responde preguntas que la gramática no puede
+resolver: si una variable está definida, si una llamada tiene la aridad correcta,
+si un tipo existe, si una condición es booleana, si un método pertenece al
+receptor, si un \emph{cast} es admisible, si una redefinición respeta la firma del
+padre o si un tipo satisface un protocolo.
+
+\subsection{Análisis en varias pasadas}
+
+El análisis se organiza en tres pasadas secuenciales sobre el AST. Esta decisión
+responde a una necesidad del lenguaje: las declaraciones globales pueden referirse
+entre sí, las funciones pueden ser recursivas y la herencia requiere conocer la
+jerarquía completa antes de validar cuerpos.
+
+\begin{enumerate}[leftmargin=1.6em]
+\item \textbf{Registro de tipos.} Recolecta todas las definiciones de tipo,
+valida ausencia de tipos, atributos, métodos y parámetros duplicados, registra
+protocolos, comprueba que no existan ciclos de herencia y registra los tipos en
+orden topológico (los padres antes que los hijos).
+\item \textbf{Registro de funciones.} Recolecta las funciones globales, valida que
+no haya nombres ni parámetros duplicados y almacena sus firmas.
+\item \textbf{Chequeo de tipos.} Verifica cuerpos de métodos, inicializadores de
+atributos, cuerpos de funciones y la expresión global; acumula errores y, si los
+hay, los imprime y aborta con código de salida 3.
+\end{enumerate}
+
+\subsection{Tabla de tipos, subtipado y protocolos}
+
+La tabla de tipos (\repo{src/type_table.cpp}) registra los tipos primitivos
+\repo{Number}, \repo{String}, \repo{Boolean} y el tipo raíz \repo{Object}, además
+de tipos sintéticos generados bajo demanda: \repo{Vector<T>}, \repo{Iterable<T>} y
+tipos funtor (\repo{\_FunctorType\_N}) para valores invocables. Los tipos
+primitivos son \emph{finales}: heredar de ellos es un error.
+
+El subtipado nominal recorre la cadena de padres: todo tipo conforma con
+\repo{Object}, y un tipo conforma con un ancestro si aparece en su cadena de
+herencia. Los contenedores son covariantes (\repo{Vector<T> <= Vector<U>} si
+\repo{T <= U}) y un \repo{Vector<T>} conforma con \repo{Iterable<T>}.
+
+Para protocolos, el sistema valida conformidad \emph{estructural}: un tipo puede
+usarse donde se espera un protocolo si posee todos los métodos requeridos con
+firmas compatibles, comprobando además reglas de varianza (contravarianza en
+parámetros y covarianza en el tipo de retorno). Esta decisión introduce una forma
+de polimorfismo basada en comportamiento, no en nombres.
+
+\subsection{Inferencia acotada}
+
+\hulk{} permite omitir anotaciones de tipo en varios contextos, por lo que el
+compilador realiza una inferencia \emph{acotada} (no un sistema general de
+inferencia). Las decisiones principales son: los parámetros sin anotar adoptan por
+defecto el tipo \repo{Number} (heurística justificada porque \hulk{} no tiene
+sobrecarga de operadores y un parámetro usado aritméticamente solo puede ser
+numérico); el tipo de un atributo sin anotar se infiere de su inicializador; el
+tipo de una literal de vector es el ancestro común más bajo (LCA) de sus
+elementos; el tipo de un \repo{if} es el LCA de sus ramas; y el retorno de una
+función puede inferirse de su cuerpo. Se trata de una inferencia local de una sola
+pasada, no de un punto fijo iterativo: un compromiso entre expresividad y
+simplicidad.
+
+\subsection{Resolución de nombres, \repo{self} y \repo{base}}
+
+La resolución de nombres usa una tabla de símbolos basada en una pila de ámbitos:
+ámbito global (con las constantes \repo{PI} y \repo{E} predefinidas), ámbitos de
+función, ámbitos de \repo{let} y ámbitos de método. Las búsquedas van del ámbito
+más interno al más externo. \repo{self} solo es válido dentro de métodos y su tipo
+es el del tipo contenedor; no es un objetivo de asignación válido. \repo{base()}
+solo es válido dentro de métodos y se resuelve contra el método homónimo del tipo
+padre, lo que distingue la llamada al ancestro del despacho dinámico ordinario.
+
+\subsection{Transpilación de lambdas a funtores}
+
+Una decisión central de esta fase es que las lambdas no se tratan como un valor
+primitivo del runtime, sino que se \emph{transpilan} a un tipo funtor. Al visitar
+una \repo{LambdaExpr}, el analizador detecta las variables libres capturadas del
+entorno, genera un \repo{TypeDef} sintético (\repo{\_Lambda\_N}) con un atributo
+por cada captura y un método \repo{invoke} cuyo cuerpo es el de la lambda, y anota
+en el nodo el nombre del tipo generado y la lista de capturas. El cuerpo original
+se envuelve en un \repo{let} que reenlaza cada variable capturada a
+\repo{self.\_var}, de modo que el código de la lambda puede seguir refiriéndose a
+los nombres originales. Esta estrategia reduce la complejidad del backend: una
+lambda se convierte en \repo{new \_Lambda\_N(capturas)} y su invocación en una
+llamada al método \repo{invoke}.
+
+\subsection{Errores semánticos diferenciados}
+
+Una fortaleza de la fase semántica es que distingue errores de naturaleza
+diferente, todos con el formato \repo{(línea,columna) SEMANTIC: mensaje}. Entre los
+casos cubiertos aparecen: tipos, funciones, métodos, atributos y parámetros
+duplicados; símbolos y métodos indefinidos; objetivos de asignación inválidos;
+aridades incorrectas en funciones, métodos, constructores y \repo{base()};
+herencia circular; herencia desde primitivos; padre inexistente; \emph{override}
+con aridad, firma o retorno incompatibles; atributos privados accedidos desde
+fuera de su tipo; condiciones no booleanas en \repo{if}, \repo{while} y filtros de
+comprensión; \repo{for} sobre algo no iterable; operandos inválidos en operadores
+aritméticos, booleanos, de comparación y de concatenación; \emph{casts}
+inadmisibles; e inferencia no resuelta. En una defensa académica esto es esencial:
+un compilador no se evalúa únicamente por los programas que ejecuta, sino también
+por los programas inválidos que detecta antes de generar código.
+
+\subsection{Funciones y constantes incorporadas}
+
+El sistema predefine las funciones \repo{print}, \repo{sqrt}, \repo{sin},
+\repo{cos}, \repo{exp}, \repo{log} (con base), \repo{rand} y \repo{range}, así como
+las constantes \repo{PI} y \repo{E}. La función \repo{range} produce un objeto que
+conforma con el protocolo \repo{Iterable}, lo que permite recorrerlo con
+\repo{for}.
+
+% ============================================================
+\section{Generación de bytecode}
+
+\subsection{Motivación de un bytecode propio}
+
+Una decisión central del sistema es no emitir ensamblador nativo ni LLVM, sino un
+\emph{bytecode propio} ejecutado por una máquina virtual. Esta elección responde al
+alcance del proyecto: generar ensamblador exigiría manejar convenciones de llamada,
+registros, pila, alineación y detalles de plataforma; integrar LLVM añadiría una
+dependencia y un nivel de abstracción que no es necesario para los objetivos del
+curso. Un bytecode propio, en cambio, permite concentrar el trabajo en la
+traducción semántica de \hulk{} y mantener una representación legible y depurable,
+cercana a una máquina de pila.
+
+\subsection{Modelo de pila y conjunto de instrucciones}
+
+El bytecode (\repo{include/bytecode.hpp}) está orientado a una \emph{máquina de
+pila}: los operandos se empujan y se consumen de una pila de valores. El conjunto
+de instrucciones cubre movimiento de datos y ámbitos, aritmética, lógica,
+concatenación, comparación, control de flujo, llamadas, modelo de objetos,
+vectores, iteración y rangos.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{p{3.6cm}X}
+\toprule
+\textbf{Grupo} & \textbf{Instrucciones representativas} \\
+\midrule
+Datos y ámbitos & \repo{PUSH\_CONST}, \repo{LOAD}, \repo{STORE}, \repo{ASSIGN}, \repo{POP}, \repo{BEGIN\_SCOPE}, \repo{POP\_SCOPE}. \\
+Aritmética y lógica & \repo{ADD}, \repo{SUB}, \repo{MUL}, \repo{DIV}, \repo{POW}, \repo{MOD}, \repo{NEG}, \repo{NOT}, \repo{AND}, \repo{OR}. \\
+Comparación y cadenas & \repo{CMP\_EQ}, \repo{CMP\_NEQ}, \repo{CMP\_LT}, \repo{CMP\_GT}, \repo{CMP\_LE}, \repo{CMP\_GE}, \repo{CONCAT}. \\
+Control de flujo & \repo{JUMP}, \repo{JUMP\_IF\_FALSE}, \repo{JUMP\_IF\_TRUE}, \repo{LABEL}, \repo{RETURN}, \repo{HALT}. \\
+Funciones & \repo{CALL}. \\
+Objetos & \repo{NEW}, \repo{GET\_ATTR}, \repo{SET\_ATTR}, \repo{SELF}, \repo{METHOD\_CALL}, \repo{BASE\_CALL}. \\
+Tipos dinámicos & \repo{IS}, \repo{AS}. \\
+Vectores e iteración & \repo{NEW\_VECTOR}, \repo{VECTOR\_PUSH}, \repo{VECTOR\_INDEX}, \repo{VECTOR\_STORE}, \repo{SIZE}, \repo{ITER\_NEXT}, \repo{ITER\_CURRENT}, \repo{RANGE}. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Un \repo{BytecodeProgram} contiene cuatro secciones: la lista de instrucciones, una
+tabla de constantes (con deduplicación), una tabla de funciones (que mapea nombres
+a índices de instrucción, incluyendo métodos como \repo{Tipo.metodo} y
+constructores como \repo{Tipo.\_\_init\_\_}) y una tabla de ancestros por tipo,
+usada para el despacho dinámico en tiempo de ejecución.
+
+\subsection{Lowering de objetos, métodos y \repo{base}}
+
+El generador de código (\repo{src/code_generator.cpp}) construye, para cada
+\repo{TypeDef}, un método constructor \repo{Tipo.\_\_init\_\_}. Si el tipo tiene
+padre, el constructor comienza con un \repo{BASE\_CALL} al \repo{\_\_init\_\_} del
+ancestro; luego inicializa los atributos a partir de los parámetros del constructor
+y de los inicializadores, y devuelve \repo{self}. La instanciación \repo{new T(...)}
+emite \repo{NEW T}, evalúa los argumentos y llama \repo{\_\_init\_\_}.
+
+El despacho dinámico se resuelve en tiempo de ejecución: \repo{METHOD\_CALL}
+construye el símbolo \repo{tipo.metodo} y, si no lo encuentra, recorre la cadena de
+ancestros del objeto hasta hallar la primera implementación. Esto logra el efecto
+de una tabla virtual sin almacenar punteros de vtable, lo que simplifica la
+serialización. La llamada \repo{base(...)} se compila como \repo{BASE\_CALL}
+estático contra el método del ancestro, evitando que vuelva a invocarse el
+\emph{override} del hijo.
+
+\subsection{Lowering de \repo{self}, vectores, ciclos y lambdas}
+
+El \repo{self} implícito de los métodos se trata como un valor disponible mediante
+la instrucción \repo{SELF}. Los vectores literales se construyen con
+\repo{NEW\_VECTOR}; la indexación usa \repo{VECTOR\_INDEX}; la asignación por índice,
+\repo{VECTOR\_STORE}; y la longitud, \repo{SIZE}. Los ciclos \repo{for} y las
+comprensiones se bajan a un patrón basado en \repo{ITER\_NEXT}/\repo{ITER\_CURRENT}
+sobre el iterable. Las lambdas, ya transpiladas a tipos funtor por la semántica, se
+emiten como \repo{NEW \_Lambda\_N}, seguido de la carga de las variables capturadas
+y la llamada a \repo{\_\_init\_\_}; su invocación se compila como una llamada al
+método \repo{invoke}.
+
+\begin{lstlisting}[language=BYTE,caption={Esquema de bytecode para un \texttt{for}}]
+STORE  iter_var          # guarda el iterable
+LABEL  loop_start
+LOAD   iter_var
+ITER_NEXT                # empuja Boolean: hay siguiente?
+JUMP_IF_FALSE loop_end
+LOAD   iter_var
+ITER_CURRENT             # empuja el elemento actual
+STORE  x                 # variable del for
+...  cuerpo ...
+JUMP   loop_start
+LABEL  loop_end
+\end{lstlisting}
+
+\subsection{Serialización}
+
+El programa de bytecode se serializa en formato \emph{binario}
+(\repo{src/serialize.cpp}) a un archivo \repo{compiled.asm}. El formato comienza con
+un número mágico (\repo{0x48554C4B}, las letras ``HULK'') y una versión, seguidos de
+las secciones de código, constantes, tabla de funciones y tabla de ancestros. La
+máquina virtual deserializa este archivo para reconstruir el \repo{BytecodeProgram}.
+
+% ============================================================
+\section{Máquina virtual de ejecución}
+
+\subsection{Arquitectura}
+
+La máquina virtual (\repo{src/vm.cpp}) es un intérprete de pila. Su estado consiste
+en una pila de operandos, un puntero de instrucción, una pila de marcos de llamada
+(cada uno con dirección de retorno, entorno y \repo{self}) y una cadena de entornos
+para el ámbito de variables. El bucle principal recorre las instrucciones y las
+ejecuta mediante un \emph{switch} sobre el código de operación.
+
+\subsection{Modelo de valores y objetos}
+
+El valor de runtime (\repo{include/value.hpp}) es una unión etiquetada con los
+casos \repo{Number} (un \repo{double}), \repo{String}, \repo{Boolean},
+\repo{Object}, \repo{Vector} y \repo{Null}. Los objetos y vectores se gestionan con
+punteros compartidos. Un \repo{HulkObject} (\repo{include/hulk_object.hpp}) almacena
+su nombre de tipo, su cadena de ancestros y un mapa de atributos; el despacho de
+métodos usa esa cadena de ancestros. Los iterables del runtime, como
+\repo{HulkVector} y \repo{HulkRange}, exponen \repo{next()} y \repo{current()}, lo
+que permite que \repo{ITER\_NEXT} e \repo{ITER\_CURRENT} operen uniformemente sobre
+vectores, rangos y objetos definidos por el usuario que conformen con
+\repo{Iterable}.
+
+\subsection{Llamadas, despacho y builtins}
+
+Una instrucción \repo{CALL} busca primero en la tabla de funciones del programa; si
+no la encuentra, busca en el entorno global una función nativa (los builtins
+\repo{print}, \repo{sqrt}, \repo{range}, etc., implementados como objetos de función
+nativa). \repo{METHOD\_CALL} implementa el despacho dinámico recorriendo la cadena
+de ancestros del receptor, mientras que \repo{BASE\_CALL} salta directamente a la
+implementación del ancestro. La máquina virtual lanza errores de ejecución ante
+situaciones como división por cero, índices fuera de rango, \emph{casts} inválidos o
+métodos inexistentes.
+
+\subsection{Por qué la VM no es ``otro backend''}
+
+Conviene precisar que la máquina virtual no es un backend alternativo al generador
+de bytecode, sino su consumidor natural. El compilador \repo{hulk} produce el
+bytecode y un pequeño \emph{script} \repo{./output} que invoca \repo{hulk-vm} sobre
+\repo{compiled.asm}. Así, el flujo de artefactos es claro: una sola tubería de
+compilación seguida de una etapa de ejecución desacoplada.
+
+% ============================================================
+\section{Extensión propia de lenguaje: macros y \repo{match}}
+
+\subsection{Problema de diseño}
+
+\hulk{} ofrece funciones, condicionales y operadores, pero no un mecanismo para
+\emph{abstraer patrones de código} que el programador repite con pequeñas
+variaciones, ni para generar código a partir de plantillas. La extensión propia
+principal de este proyecto es un \emph{sistema de macros sintácticas}: el
+programador declara con \repo{define} (alias \repo{def}) plantillas que el
+compilador expande antes del análisis semántico, sustituyendo parámetros por los
+argumentos de cada invocación.
+
+\subsection{Sintaxis y representación}
+
+Una macro se declara como una función, pero con \repo{define}, y vive en un espacio
+de nombres separado (\repo{Program.macros}). Sus parámetros pueden ser
+\emph{por valor} (\repo{name}) o \emph{sintácticos} (\repo{*name}), estos últimos
+destinados a recibir un bloque de código. En el AST, una declaración es un
+\repo{MacroDef} (con \repo{MacroParam} que marca \repo{is\_syntactic}) y cada
+invocación es un \repo{MacroInvoke}, que puede llevar un argumento de bloque.
+
+\begin{lstlisting}[language=HULK,caption={Definición y uso de macros}]
+define double(x: Number): Number -> x * 2;
+define triple(x: Number): Number -> x * 3;
+define six_times(x: Number): Number -> double(triple(x));
+
+{
+    if (six_times(3) == 18) print("ok") else print("fail");
+}
+\end{lstlisting}
+
+\subsection{Expansión, higiene y recursión}
+
+La expansión la realiza \repo{MacroExpander} (\repo{src/macro_expander.cpp}) como
+una transformación AST$\to$AST previa a la semántica. El expansor indexa las macros
+declaradas, recorre el árbol y, al encontrar un \repo{MacroInvoke} (o una llamada
+cuyo nombre coincide con una macro), valida la aridad, construye un mapa de
+sustitución parámetro$\to$argumento, \emph{clona} el cuerpo de la macro y sustituye.
+
+La \emph{higiene} se resuelve con identificadores con prefijo \repo{$}: dentro del
+cuerpo de una macro, un nombre como \repo{$tmp} se renombra a un identificador único
+generado con un contador global (un prefijo \repo{\_\_mN\_}), de modo que distintas
+expansiones no colisionan entre sí ni capturan variables del sitio de invocación.
+La expansión es recursiva: el cuerpo de una macro puede invocar otras macros, que se
+re-expanden, con un límite de profundidad (64) como salvaguarda frente a recursión
+infinita. La existencia de pruebas dedicadas (\repo{define\_hygiene},
+\repo{define\_nested}, \repo{define\_recursive\_expand}, \repo{define\_loop},
+\repo{define\_conditional}, \repo{define\_chain}, \repo{define\_block}) documenta el
+alcance del sistema.
+
+\subsection{La construcción \repo{match}}
+
+La construcción \repo{match} acompaña a las macros como azúcar sintáctica para
+clasificación por \emph{tipo dinámico}. Su forma es:
+
+\begin{lstlisting}[language=HULK,caption={Forma general de match}]
+match (subject) {
+    case TipoA: cuerpo_a;
+    case TipoB: cuerpo_b;
+    default: cuerpo_por_defecto;
+}
+\end{lstlisting}
+
+El expansor desazucara \repo{match} a una combinación de primitivas ya existentes:
+evalúa el \emph{scrutinee} una sola vez ligándolo a una variable sintética con
+\repo{let}, y genera una cadena \repo{if}/\repo{elif}/\repo{else} en la que cada
+brazo prueba \repo{variable is Tipo}; el brazo \repo{default} se convierte en el
+\repo{else} final. Si no hay \repo{default}, se usa un valor por defecto como
+respaldo. Esta estrategia tiene varias ventajas: no agrega instrucciones nuevas al
+bytecode, reutiliza las reglas semánticas de \repo{let}, \repo{if} e \repo{is}, y
+mantiene la máquina virtual independiente de una construcción de patrones.
+
+\begin{lstlisting}[language=HULK,caption={Esquema conceptual de desazucarado de match}]
+let __match0__ = subject in
+    if (__match0__ is TipoA) cuerpo_a
+    elif (__match0__ is TipoB) cuerpo_b
+    else cuerpo_por_defecto
+\end{lstlisting}
+
+La evaluación única del \emph{scrutinee} es importante: si tuviera efectos
+secundarios, reevaluarlo por cada brazo cambiaría el significado del programa; por
+eso el desazucarado lo guarda primero en una variable.
+
+\subsection{Comparación con otros lenguajes}
+
+El sistema de macros de \hulk{} se inspira en los macros de sustitución sintáctica
+presentes en la tradición de Lisp y en el preprocesador de C, pero adopta una
+posición intermedia. A diferencia del preprocesador de C, opera sobre el AST y no
+sobre texto, por lo que respeta la estructura del lenguaje y puede aplicar higiene;
+a diferencia de los macros \repo{syntax-rules} de Scheme, su modelo de higiene es
+más simple (basado en \repo{$}-placeholders y renombrado por contador) y no implementa
+\emph{pattern matching} sobre la forma sintáctica de los argumentos. La construcción
+\repo{match}, por su parte, recuerda al \repo{match} de Rust o al \repo{when} de
+Kotlin en la idea de seleccionar por tipo dinámico, pero su alcance es deliberadamente
+menor: solo patrones de tipo y un brazo por defecto, sin \emph{binding} ni
+\emph{narrowing} explícito, lo que basta para el modelo de objetos con herencia
+abierta de \hulk{} sin asumir tipos suma cerrados.
+
+% ============================================================
+\section{Característica adicional: comprensión de listas y generadores perezosos}
+
+Además del sistema de macros, el compilador incorpora dos características
+relacionadas con el procesamiento de secuencias: la \emph{comprensión de listas}
+(construcción declarativa de vectores) y los \emph{generadores perezosos}
+(secuencias producidas bajo demanda). Ambas comparten el mismo protocolo de
+iteración, pero difieren en un punto esencial: la comprensión \emph{materializa}
+un resultado, mientras que un generador \emph{difiere} el cálculo de sus elementos.
+
+\subsection{Comprensión de listas}
+
+La comprensión de listas permite construir un vector describiendo cómo se genera
+cada elemento a partir de los elementos de una secuencia fuente, con un filtro
+opcional. La gramática (\repo{src/parser.y}) reconoce dos formas, que producen los
+nodos \repo{VectorComprehension} y \repo{VectorComprehensionFilter}:
+
+\begin{lstlisting}[language=HULK,caption={Comprensión de listas, con y sin filtro}]
+let squares = [x * x | x in range(0, 5)] in print(squares);
+let evens   = [x | x in range(0, 10) if x % 2 == 0] in print(evens);
+\end{lstlisting}
+
+Semánticamente, el analizador exige que la fuente sea iterable ---un
+\repo{Iterable<T>}, un \repo{Vector<T>} o un tipo que conforme con el protocolo
+\repo{Iterable}--- e infiere el tipo del elemento a partir de ella; en la forma con
+filtro, además verifica que la condición sea \repo{Boolean}.
+
+El \emph{lowering} de la comprensión es \emph{ansioso} (\emph{eager}): el generador
+de código (\repo{src/code_generator.cpp}) inicializa un vector vacío con
+\repo{VECTOR\_INIT} y recorre la fuente con el mismo protocolo de iteración que el
+\repo{for}, empujando con \repo{VECTOR\_PUSH} cada elemento generado que pase el
+filtro. El resultado es un \repo{HulkVector} concreto en memoria.
+
+\begin{lstlisting}[language=BYTE,caption={Bytecode de una comprensión con filtro}]
+... evalua la fuente ...
+STORE _iter
+VECTOR_INIT
+STORE _vec
+LABEL loop_start
+LOAD  _iter
+ITER_NEXT                # hay siguiente?
+JUMP_IF_FALSE loop_end
+LOAD  _iter
+ITER_CURRENT
+STORE x                  # variable de la comprension
+...  evalua el filtro ...
+JUMP_IF_FALSE loop_start  # si el filtro es falso, no se empuja
+LOAD  _vec
+...  evalua el generador ...
+VECTOR_PUSH
+STORE _vec
+JUMP loop_start
+LABEL loop_end
+LOAD  _vec               # el vector materializado es el valor resultante
+\end{lstlisting}
+
+\subsection{Generadores perezosos}
+
+La fuente de una comprensión ---o de un \repo{for}--- no necesita existir
+completamente en memoria. El protocolo de iteración del lenguaje es
+\emph{perezoso} y basado en \emph{pull}: un iterable expone los métodos
+\repo{next()} (avanza y responde si quedan elementos) y \repo{current()} (devuelve
+el elemento actual), y las instrucciones \repo{ITER\_NEXT} e \repo{ITER\_CURRENT}
+solicitan \emph{un} elemento a la vez. Así, los valores se calculan en el momento
+en que se consumen y nunca se almacena la secuencia completa de la fuente.
+
+El lenguaje ofrece una anotación de tipo dedicada para estas secuencias perezosas:
+el sufijo \repo{*} sobre un tipo. La gramática (\repo{src/parser.y}) desazucara
+\repo{T*} a \repo{Iterable<T>}, de modo que un parámetro declarado \repo{gen:
+Number*} acepta cualquier generador perezoso de números. El tipo \repo{Iterable}
+está predefinido como protocolo con los métodos \repo{next()} y \repo{current()}
+(\repo{src/type_table.cpp}), y la función incorporada \repo{range} produce
+precisamente un generador perezoso de este tipo.
+
+Un generador perezoso puede definirse como un tipo ordinario que implemente el
+protocolo: su estado interno avanza en \repo{next()} y el valor se computa en
+\repo{current()}. El siguiente ejemplo ---tomado de la batería de pruebas--- define
+un generador de cuadrados y lo consume mediante un parámetro de tipo \repo{Number*}:
+
+\begin{lstlisting}[language=HULK,caption={Generador perezoso y su consumo}]
+type Squares(n: Number) {
+    i: Number = 0;
+    limit: Number = n;
+    next(): Boolean { self.i := self.i + 1; self.i <= self.limit; }
+    current(): Number { self.i * self.i; }
+}
+
+function sum_gen(gen: Number*): Number {
+    let s: Number = 0 in {
+        for (x in gen) { s := s + x; };
+        s;
+    };
+}
+
+print(sum_gen(new Squares(3)));   // 1 + 4 + 9 = 14
+\end{lstlisting}
+
+En tiempo de ejecución, \repo{ITER\_NEXT} sobre un objeto distingue tres casos
+(\repo{src/vm.cpp}): si es un \repo{HulkRange} llama a su \repo{next()} nativo; si es
+un \repo{HulkVector} avanza su iterador interno; y si es un objeto de usuario, busca
+y ejecuta su método \repo{next()} (recorriendo la cadena de ancestros), e
+igualmente \repo{ITER\_CURRENT} invoca \repo{current()}. Este despacho uniforme es lo
+que permite que \repo{for} y las comprensiones operen indistintamente sobre rangos,
+vectores y generadores definidos por el usuario.
+
+\subsection{Relación entre ambas características}
+
+La distinción de diseño es clara: un \emph{generador} representa una secuencia
+perezosa que puede pasarse, recorrerse y consumirse elemento a elemento sin
+materializarse; una \emph{comprensión} consume una de esas secuencias (perezosa o
+no) y produce un vector concreto. Dicho de otro modo, la comprensión es un
+\emph{consumidor ansioso} construido sobre el \emph{protocolo perezoso} de
+iteración. Esta separación permite componer ambos mundos: una comprensión puede
+alimentarse de \repo{range} o de un generador de usuario, tomando perezosamente de
+la fuente solo lo necesario para construir su resultado.
+
+% ============================================================
+\section{Validación y resultados}
+
+El compilador se valida contra la batería de pruebas de entrega final, organizada
+en categorías obligatorias y de bonificación. Cada caso compila un programa con
+\repo{hulk}, ejecuta \repo{./output} y compara la salida con la esperada; los casos
+de error verifican además el código de salida y la categoría del diagnóstico
+(\repo{LEXICAL}, \repo{SYNTACTIC}, \repo{SEMANTIC}). El sistema supera el
+\textbf{100\,\%} de las pruebas (\textbf{115/115}).
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{p{4.2cm}p{2.4cm}X}
+\toprule
+\textbf{Categoría} & \textbf{Resultado} & \textbf{Cobertura} \\
+\midrule
+\repo{ok/minimal} & 20/20 & Expresiones, \repo{let}, control de flujo, funciones. \\
+\repo{ok/types} & 10/10 & Tipos, atributos, métodos, retornos. \\
+\repo{ok/oop} & 10/10 & Herencia, despacho dinámico, \repo{self}, \repo{base}. \\
+\repo{errors/lexical} & 6/6 & Diagnósticos léxicos y código de salida 1. \\
+\repo{errors/syntactic} & 10/10 & Diagnósticos sintácticos y código de salida 2. \\
+\repo{errors/semantic} & 15/15 & Diagnósticos semánticos y código de salida 3. \\
+\repo{ok/macros} & 8/8 & Definición, higiene, anidamiento, expansión recursiva. \\
+\repo{ok/interfaces} & 6/6 & Protocolos y conformidad estructural. \\
+\repo{ok/arrays} & 8/8 & Vectores, indexación, mutación, recorrido. \\
+\repo{ok/lambdas} & 6/6 & Lambdas, \emph{closures}, composición. \\
+\repo{ok/generators} & 6/6 & Iterables definidos por el usuario. \\
+\repo{ok/extras} & 10/10 & Casos combinados, incl. control de flujo como operando. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Construcción y reproducibilidad}
+
+El proyecto se construye con CMake y requiere Flex y Bison. El objetivo de
+construcción genera ambos ejecutables y los copia a la raíz del repositorio:
+
+\begin{lstlisting}[language=BYTE,caption={Construcción}]
+cmake -B build -S .
+cmake --build build -j
+cp build/hulk . && cp build/hulk-vm .
+\end{lstlisting}
+
+\section{Limitaciones y trabajo futuro}
+
+El diseño asume varios compromisos conscientes. La inferencia de tipos es local y
+adopta \repo{Number} como tipo por defecto de parámetros sin anotar, lo que puede
+ser conservador en programas que usan parámetros no numéricos sin anotación. La
+higiene de macros se basa en \repo{$}-placeholders explícitos y no en un sistema
+completo de higiene automática. La construcción \repo{match} solo admite patrones de
+tipo y un brazo por defecto, sin \emph{binding} ni patrones estructurales. El
+despacho dinámico recorre linealmente la cadena de ancestros en lugar de usar tablas
+virtuales materializadas. Como trabajo futuro se plantean: una inferencia más
+expresiva, higiene automática de macros, patrones con \emph{binding} y
+\emph{narrowing} en \repo{match}, y optimizaciones de bytecode (vtables, plegado de
+constantes).
+
+\section{Conclusiones}
+
+El compilador de \hulk{} presentado implementa, de extremo a extremo, una tubería de
+compilación por fases en C++: análisis léxico con Flex, análisis sintáctico GLR con
+Bison, un AST con patrón \emph{visitor}, una fase de expansión que elimina macros y
+\repo{match}, un análisis semántico en tres pasadas con sistema de tipos, protocolos
+estructurales e inferencia acotada, la transpilación de lambdas a tipos funtor, la
+generación de un bytecode de pila propio y una máquina virtual que lo ejecuta. Cada
+frontera del compilador responde a una decisión de diseño justificada por las
+necesidades de las fases vecinas. La extensión propia ---un sistema de macros
+sintácticas con higiene y expansión recursiva, junto con \repo{match}--- aporta
+metaprogramación a nivel de sintaxis sin incrementar la complejidad de las fases de
+bajo nivel, gracias a su resolución como transformaciones AST$\to$AST. El resultado
+es un sistema observable por capas que supera la totalidad de la batería de pruebas
+de entrega final.
+
+\end{document}
