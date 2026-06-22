@@ -118,6 +118,7 @@ std::vector<std::unique_ptr<T>> to_unique_vec(std::vector<T*>* src) {
 %type <protocol_method_ptr> protocol_method_sig
 %type <inherits_info> opt_inherits
 %type <definitions> definition_list
+%type <expr_ptr> opt_array_init
 
 /* --- Precedencia --- */
 %nonassoc TOK_IN
@@ -286,6 +287,10 @@ expression:
 assign_expr:
     IDENTIFIER TOK_ASSIGN assign_expr { $$ = new AssignExpr($1, std::unique_ptr<Expr>($3), line_number, column_number); }
     | postfix_expr '.' IDENTIFIER TOK_ASSIGN assign_expr { $$ = new AssignExpr(std::unique_ptr<Expr>($1), $3, std::unique_ptr<Expr>($5), line_number, column_number); }
+    | postfix_expr '[' expression ']' TOK_ASSIGN assign_expr
+    {
+        $$ = new ArrayAssignExpr(std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), std::unique_ptr<Expr>($6), line_number, column_number);
+    }
     /* Lambdas live at the assignment level (not primary_expr) so the body extends
        maximally to the right and the lambda itself cannot become an operand of a
        binary operator — which would create a genuine `f -> a * b` ambiguity. */
@@ -431,6 +436,15 @@ primary_expr:
     | IDENTIFIER '(' opt_expression_list ')' { $$ = new FuncCall($1, to_unique_vec($3), line_number, column_number); }
     | IDENTIFIER '(' opt_expression_list ')' block_expr { $$ = new MacroInvoke($1, to_unique_vec($3), std::unique_ptr<Expr>($5), line_number, column_number); }
     | TOK_NEW IDENTIFIER '(' opt_expression_list ')' { $$ = new NewExpr($2, to_unique_vec($4), line_number, column_number); }
+    | TOK_NEW IDENTIFIER '[' expression ']' opt_array_init
+    {
+        $$ = new ArrayNewExpr($2, std::unique_ptr<Expr>($4), std::unique_ptr<Expr>($6), line_number, column_number);
+    }
+    | TOK_NEW IDENTIFIER '[' ']' '[' expression ']' opt_array_init
+    {
+        std::string elem_type = std::string($2) + "[]";
+        $$ = new ArrayNewExpr(elem_type, std::unique_ptr<Expr>($6), std::unique_ptr<Expr>($8), line_number, column_number);
+    }
     | TOK_BASE '(' opt_expression_list ')' { $$ = new BaseCall(to_unique_vec($3), line_number, column_number); }
     | TOK_SELF { $$ = new SelfRef(line_number, column_number); }
     | '(' expression ')' { $$ = $2; }
@@ -461,6 +475,16 @@ primary_expr:
 
 block_expr:
     '{' block_expression_list '}' { $$ = new BlockExpr(to_unique_vec($2), line_number, column_number); }
+    | '{' comp_expr ',' opt_vector_elements '}'
+    {
+        auto* vec = new std::vector<Expr*>();
+        vec->push_back($2);
+        if ($4) {
+            for (auto e : *$4) vec->push_back(e);
+            delete $4;
+        }
+        $$ = new VectorLiteral(to_unique_vec(vec), line_number, column_number);
+    }
     ;
 
 opt_expression_list:
@@ -471,6 +495,16 @@ opt_expression_list:
 expression_list:
     expression { $$ = new std::vector<Expr*>(); $$->push_back($1); }
     | expression_list ',' expression { $1->push_back($3); $$ = $1; }
+    ;
+
+opt_array_init:
+    /* empty */ { $$ = nullptr; }
+    | '{' IDENTIFIER TOK_TYPE_ARROW expression '}'
+    {
+        std::vector<Parameter> params;
+        params.emplace_back($2, "");
+        $$ = new LambdaExpr(std::move(params), "", std::unique_ptr<Expr>($4), line_number, column_number);
+    }
     ;
 
 opt_vector_elements:
@@ -486,7 +520,7 @@ vector_elements:
 type_expr:
     IDENTIFIER
     { $$ = $1; }
-    | IDENTIFIER '*'
+    | type_expr '*'
     {
         size_t len = strlen($1) + 12;
         char* buf = (char*)malloc(len);
@@ -494,7 +528,7 @@ type_expr:
         free($1);
         $$ = buf;
     }
-    | IDENTIFIER '[' ']'
+    | type_expr '[' ']'
     {
         size_t len = strlen($1) + 10;
         char* buf = (char*)malloc(len);

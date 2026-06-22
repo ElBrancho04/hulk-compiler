@@ -315,6 +315,24 @@ public:
         if (node.body) node.body->accept(*this);
         indent_level--;
     }
+
+    void visit(ArrayNewExpr& node) override {
+        nodeHeader("ArrayNewExpr");
+        indent_level++;
+        printIndent(); std::cout << "ElementType: " << node.element_type << std::endl;
+        if (node.size) { printIndent(); std::cout << "Size:" << std::endl; indent_level++; node.size->accept(*this); indent_level--; }
+        if (node.initializer) { printIndent(); std::cout << "Initializer:" << std::endl; indent_level++; node.initializer->accept(*this); indent_level--; }
+        indent_level--;
+    }
+
+    void visit(ArrayAssignExpr& node) override {
+        nodeHeader("ArrayAssignExpr");
+        indent_level++;
+        if (node.array) { printIndent(); std::cout << "Array:" << std::endl; indent_level++; node.array->accept(*this); indent_level--; }
+        if (node.index) { printIndent(); std::cout << "Index:" << std::endl; indent_level++; node.index->accept(*this); indent_level--; }
+        if (node.value) { printIndent(); std::cout << "Value:" << std::endl; indent_level++; node.value->accept(*this); indent_level--; }
+        indent_level--;
+    }
 };
 
 #endif

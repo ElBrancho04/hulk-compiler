@@ -181,6 +181,18 @@ std::unique_ptr<Expr> MacroExpander::expand_expr(std::unique_ptr<Expr> expr) {
         return expr;
     }
 
+    if (auto* n = dynamic_cast<ArrayNewExpr*>(expr.get())) {
+        if (n->size) n->size = expand_expr(std::move(n->size));
+        if (n->initializer) n->initializer = expand_expr(std::move(n->initializer));
+        return expr;
+    }
+    if (auto* n = dynamic_cast<ArrayAssignExpr*>(expr.get())) {
+        if (n->array) n->array = expand_expr(std::move(n->array));
+        if (n->index) n->index = expand_expr(std::move(n->index));
+        if (n->value) n->value = expand_expr(std::move(n->value));
+        return expr;
+    }
+
     // Leaf nodes (NumberLiteral, StringLiteral, BoolLiteral, VarRef, SelfRef):
     // nothing to expand.
     return expr;
@@ -375,6 +387,11 @@ std::unique_ptr<Expr> MacroExpander::clone(const Expr* e) const {
         return std::make_unique<MatchExpr>(clone(n->subject.get()), std::move(arms), std::move(def), n->line, n->col);
     }
 
+    if (auto* n = dynamic_cast<const ArrayNewExpr*>(e))
+        return std::make_unique<ArrayNewExpr>(n->element_type, clone(n->size.get()), clone(n->initializer.get()), n->line, n->col);
+    if (auto* n = dynamic_cast<const ArrayAssignExpr*>(e))
+        return std::make_unique<ArrayAssignExpr>(clone(n->array.get()), clone(n->index.get()), clone(n->value.get()), n->line, n->col);
+
     throw std::runtime_error("MacroExpander::clone: unknown Expr subtype");
 }
 
@@ -532,6 +549,18 @@ std::unique_ptr<Expr> MacroExpander::substitute(
         n->subject = SUB(n->subject);
         for (auto& arm : n->arms) arm.body = SUB(arm.body);
         if (n->default_body) n->default_body = SUB(n->default_body);
+        return expr;
+    }
+
+    if (auto* n = dynamic_cast<ArrayNewExpr*>(expr.get())) {
+        if (n->size) n->size = SUB(n->size);
+        if (n->initializer) n->initializer = SUB(n->initializer);
+        return expr;
+    }
+    if (auto* n = dynamic_cast<ArrayAssignExpr*>(expr.get())) {
+        if (n->array) n->array = SUB(n->array);
+        if (n->index) n->index = SUB(n->index);
+        if (n->value) n->value = SUB(n->value);
         return expr;
     }
 

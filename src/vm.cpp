@@ -502,6 +502,21 @@ void VM::execute(BytecodeProgram& program) {
                 stack_.push_back(vec->at(index));
                 break;
             }
+            case OpCode::VECTOR_STORE: {
+                Value value = popValue();
+                double index_val = popNumber("VECTOR_STORE");
+                auto vec = popVector("VECTOR_STORE");
+                if (index_val < 0.0) {
+                    throw RuntimeError("Vector index out of range in store");
+                }
+                std::size_t idx = static_cast<std::size_t>(index_val);
+                if (idx >= vec->size()) {
+                    throw RuntimeError("Vector index out of range in store");
+                }
+                vec->elements[idx] = value;
+                stack_.push_back(value);
+                break;
+            }
             case OpCode::SIZE: {
                 auto vec = popVector("SIZE");
                 stack_.push_back(Value::Number(static_cast<double>(vec->size())));

@@ -41,6 +41,8 @@ void collect_all_var_names(Expr* expr, std::unordered_set<std::string>& out) {
     if (auto* n = dynamic_cast<VectorComprehension*>(expr))      { collect_all_var_names(n->iterable.get(), out); collect_all_var_names(n->generator.get(), out); return; }
     if (auto* n = dynamic_cast<VectorComprehensionFilter*>(expr)) { collect_all_var_names(n->iterable.get(), out); collect_all_var_names(n->generator.get(), out); collect_all_var_names(n->filter.get(), out); return; }
     if (auto* n = dynamic_cast<VectorIndex*>(expr))  { collect_all_var_names(n->vector.get(), out); collect_all_var_names(n->index.get(), out); return; }
+    if (auto* n = dynamic_cast<ArrayNewExpr*>(expr))     { collect_all_var_names(n->size.get(), out); collect_all_var_names(n->initializer.get(), out); return; }
+    if (auto* n = dynamic_cast<ArrayAssignExpr*>(expr))  { collect_all_var_names(n->array.get(), out); collect_all_var_names(n->index.get(), out); collect_all_var_names(n->value.get(), out); return; }
     // NumberLiteral, StringLiteral, BoolLiteral, SelfRef, BaseCall: sin VarRef
 }
 } // namespace
@@ -1135,6 +1137,12 @@ std::string SemanticAnalyzer::analyze_expr(Expr* expr) {
     if (auto* node = dynamic_cast<LambdaExpr*>(expr)) {
         return visit(*node);
     }
+    if (auto* node = dynamic_cast<ArrayNewExpr*>(expr)) {
+        return visit(*node);
+    }
+    if (auto* node = dynamic_cast<ArrayAssignExpr*>(expr)) {
+        return visit(*node);
+    }
     return kObjectType;
 }
 
@@ -1228,7 +1236,7 @@ std::string SemanticAnalyzer::visit(LambdaExpr& node) {
     // === Paso 3: verificar tipos del cuerpo en un scope con los parámetros ===
     symbols_.enter_scope();
     for (const auto& p : node.params) {
-        const std::string pt = p.type_annotation.empty() ? kObjectType : normalize_annotation(p.type_annotation);
+        const std::string pt = p.type_annotation.empty() ? kDefaultParamType : normalize_annotation(p.type_annotation);
         ensure_type_registered(pt, node.line);
         symbols_.define(p.name, pt, node.line);
     }
@@ -1286,7 +1294,7 @@ std::string SemanticAnalyzer::visit(LambdaExpr& node) {
 
     std::vector<std::string> invoke_param_types;
     for (const auto& p : node.params)
-        invoke_param_types.push_back(p.type_annotation.empty() ? kObjectType : normalize_annotation(p.type_annotation));
+        invoke_param_types.push_back(p.type_annotation.empty() ? kDefaultParamType : normalize_annotation(p.type_annotation));
 
     std::vector<std::unique_ptr<MethodDef>> methods;
     methods.push_back(std::make_unique<MethodDef>(
@@ -1317,4 +1325,39 @@ std::string SemanticAnalyzer::visit(LambdaExpr& node) {
     node.captured_vars = captured_vars;
 
     return type_name;
+}
+
+std::string SemanticAnalyzer::visit(ArrayNewExpr& node) {
+    const std::string size_type = analyze_expr(node.size.get());
+    ensure_conforms(size_type, kNumberType, node.line, "tamaño de array");
+
+    // Convertir element_type: "Number" → "Number", "Number[]" → "Vector<Number>", etc.
+    std::string elem_type = node.element_type;
+    while (elem_type.size() >= 2 && elem_type.substr(elem_type.size() - 2) == "[]") {
+        elem_type = elem_type.substr(0, elem_type.size() - 2);
+        type_table_.ensure_vector_type(elem_type);
+        elem_type = TypeTable::make_vector_type(elem_type);
+    }
+
+    if (node.initializer) {
+        analyze_expr(node.initializer.get());
+    }
+
+    type_table_.ensure_vector_type(elem_type);
+    return TypeTable::make_vector_type(elem_type);
+}
+
+std::string SemanticAnalyzer::visit(ArrayAssignExpr& node) {
+    const std::string vec_type = analyze_expr(node.array.get());
+    const std::string idx_type = analyze_expr(node.index.get());
+    ensure_conforms(idx_type, kNumberType, node.line, "índice de array");
+
+    std::string element_type;
+    if (!TypeTable::is_vector_type(vec_type, &element_type)) {
+        element_type = kObjectType;
+    }
+
+    const std::string value_type = require_inferred_type(
+        analyze_expr(node.value.get()), node.line, "asignación a array");
+    return value_type;
 }

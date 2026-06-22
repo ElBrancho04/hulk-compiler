@@ -451,6 +451,12 @@ void CodeGenerator::visit(MethodCall& node) {
         node.object->accept(*this);
     }
 
+    // Built-in vector method: size() → emit SIZE opcode directly
+    if (node.method_name == "size" && node.args.empty()) {
+        emit(Instruction(OpCode::SIZE));
+        return;
+    }
+
     for (auto& arg : node.args) {
         if (arg) {
             arg->accept(*this);
@@ -677,4 +683,73 @@ void CodeGenerator::visit(LambdaExpr& node) {
 
     // 3. Call __init__ to store captured vars as attributes
     emit(Instruction::MethodCall("__init__", static_cast<int>(node.captured_vars.size())));
+}
+
+void CodeGenerator::visit(ArrayNewExpr& node) {
+    enterScope();
+
+    std::string size_var = makeTemp("_asize");
+    std::string vec_var  = makeTemp("_avec");
+    std::string idx_var  = makeTemp("_aidx");
+    std::string fn_var;
+
+    // Evaluar y guardar inicializador (lambda → functor) si existe
+    if (node.initializer) {
+        fn_var = makeTemp("_afn");
+        node.initializer->accept(*this);
+        emitStore(fn_var);
+    }
+
+    // Evaluar y guardar tamaño
+    if (node.size) node.size->accept(*this);
+    emitStore(size_var);
+
+    // Crear vector vacío
+    emit(Instruction::VectorInit());
+    emitStore(vec_var);
+
+    // Inicializar índice a 0
+    std::size_t zero_idx = getConstantIndex(Value::Number(0));
+    emit(Instruction::PushConst(static_cast<int>(zero_idx)));
+    emitStore(idx_var);
+
+    // Loop: while (idx < size) { vec.push(fn ? fn.invoke(idx) : null); idx++ }
+    std::size_t loop_start = program_.code.size();
+    emitLoad(idx_var);
+    emitLoad(size_var);
+    emit(Instruction(OpCode::CMP_LT));
+    std::size_t exit_jump = emitJump(OpCode::JUMP_IF_FALSE);
+
+    emitLoad(vec_var);
+    if (node.initializer) {
+        emitLoad(fn_var);
+        emitLoad(idx_var);
+        emit(Instruction::MethodCall("invoke", 1));
+    } else {
+        std::size_t null_idx = getConstantIndex(Value::Null());
+        emit(Instruction::PushConst(static_cast<int>(null_idx)));
+    }
+    emit(Instruction::VectorPush());
+    emitStore(vec_var);
+
+    emitLoad(idx_var);
+    std::size_t one_idx = getConstantIndex(Value::Number(1));
+    emit(Instruction::PushConst(static_cast<int>(one_idx)));
+    emit(Instruction(OpCode::ADD));
+    emitStore(idx_var);
+
+    std::size_t back_jump = emitJump(OpCode::JUMP);
+    patchJump(back_jump, loop_start);
+    patchJump(exit_jump, program_.code.size());
+
+    emitLoad(vec_var);
+    exitScope();
+}
+
+void CodeGenerator::visit(ArrayAssignExpr& node) {
+    // Stack: [vec, idx, val] → VECTOR_STORE → [val]
+    if (node.array) node.array->accept(*this);
+    if (node.index) node.index->accept(*this);
+    if (node.value) node.value->accept(*this);
+    emit(Instruction(OpCode::VECTOR_STORE));
 }

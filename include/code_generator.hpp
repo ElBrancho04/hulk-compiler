@@ -57,6 +57,8 @@ public:
     void visit(VectorComprehension& node) override;
     void visit(VectorComprehensionFilter& node) override;
     void visit(VectorIndex& node) override;
+    void visit(ArrayNewExpr& node) override;
+    void visit(ArrayAssignExpr& node) override;
     void visit(Program& node) override;
     void visit(LambdaExpr& node) override;
 

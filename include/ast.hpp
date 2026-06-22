@@ -17,6 +17,8 @@ class SelfRef; class BaseCall; class IsExpr; class AsExpr;
 class VectorLiteral; class VectorComprehension; class VectorComprehensionFilter;
 class VectorIndex; class Program;
 class LambdaExpr;
+class ArrayNewExpr;
+class ArrayAssignExpr;
 class MacroDef; class MacroInvoke; class MatchExpr;
 
 template <typename T>
@@ -53,6 +55,8 @@ public:
     virtual T visit(VectorIndex& node) = 0;
     virtual T visit(Program& node) = 0;
     virtual T visit(LambdaExpr& node) = 0;
+    virtual T visit(ArrayNewExpr& node) = 0;
+    virtual T visit(ArrayAssignExpr& node) = 0;
     virtual ~Visitor() = default;
 };
 
@@ -521,6 +525,35 @@ public:
             "MatchExpr line " + std::to_string(line) +
             " was not desugared before codegen");
     }
+};
+
+// new Type[size]  o  new Type[size]{ i -> expr }
+class ArrayNewExpr : public Expr {
+public:
+    std::string element_type;       // "Number", "Number[]", etc.
+    std::unique_ptr<Expr> size;
+    std::unique_ptr<Expr> initializer;  // LambdaExpr opcional, puede ser null
+
+    ArrayNewExpr(std::string elem_type, std::unique_ptr<Expr> sz,
+                 std::unique_ptr<Expr> init, int line, int col = 0)
+        : Expr(line, col), element_type(std::move(elem_type)),
+          size(std::move(sz)), initializer(std::move(init)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
+};
+
+// arr[idx] := value
+class ArrayAssignExpr : public Expr {
+public:
+    std::unique_ptr<Expr> array;
+    std::unique_ptr<Expr> index;
+    std::unique_ptr<Expr> value;
+
+    ArrayAssignExpr(std::unique_ptr<Expr> arr, std::unique_ptr<Expr> idx,
+                    std::unique_ptr<Expr> val, int line, int col = 0)
+        : Expr(line, col), array(std::move(arr)), index(std::move(idx)), value(std::move(val)) {}
+
+    void accept(Visitor<void>& visitor) override { visitor.visit(*this); }
 };
 
 // ---------------------------------------------------------------------------

@@ -55,6 +55,8 @@ public:
     std::string visit(VectorComprehension& node) override;
     std::string visit(VectorComprehensionFilter& node) override;
     std::string visit(VectorIndex& node) override;
+    std::string visit(ArrayNewExpr& node) override;
+    std::string visit(ArrayAssignExpr& node) override;
     std::string visit(Program& node) override;
     std::string visit(LambdaExpr& node) override;
 

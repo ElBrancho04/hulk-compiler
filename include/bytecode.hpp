@@ -54,6 +54,7 @@ enum class OpCode {
     VECTOR_INIT,
     VECTOR_PUSH,
     VECTOR_INDEX,
+    VECTOR_STORE,
     ITER_NEXT,
     ITER_CURRENT,
     RANGE,
@@ -231,6 +232,7 @@ inline std::string to_string(OpCode opcode) {
     case OpCode::VECTOR_INIT: return "VECTOR_INIT";
     case OpCode::VECTOR_PUSH: return "VECTOR_PUSH";
         case OpCode::VECTOR_INDEX: return "VECTOR_INDEX";
+        case OpCode::VECTOR_STORE: return "VECTOR_STORE";
         case OpCode::ITER_NEXT: return "ITER_NEXT";
         case OpCode::ITER_CURRENT: return "ITER_CURRENT";
         case OpCode::RANGE: return "RANGE";
