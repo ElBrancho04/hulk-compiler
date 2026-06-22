@@ -17,8 +17,6 @@ include_directories(include ${CMAKE_CURRENT_BINARY_DIR})
 FLEX_TARGET(MyLexer src/lexer.l ${CMAKE_CURRENT_BINARY_DIR}/lexer.cpp)
 BISON_TARGET(MyParser src/parser.y ${CMAKE_CURRENT_BINARY_DIR}/parser.cpp)
 
-ADD_FLEX_BISON_DEPENDENCY(MyLexer MyParser)
-
 # Ejecutable principal (compiler)
 add_executable(hulk
     src/main.cpp
