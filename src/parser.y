@@ -96,7 +96,7 @@ std::vector<std::unique_ptr<T>> to_unique_vec(std::vector<T*>* src) {
 %token TOK_ARROW TOK_TYPE_ARROW TOK_ASSIGN TOK_EQ TOK_NEQ TOK_LEQ TOK_GEQ TOK_CONCAT TOK_DCONCAT
 
 /* --- Tipos No Terminales --- */
-%type <expr_ptr> expression assign_expr let_expr if_expr while_expr for_expr match_expr
+%type <expr_ptr> expression assign_expr let_expr flow_expr if_expr while_expr for_expr match_expr
 %type <expr_ptr> or_expr and_expr not_expr comparison_expr concat_expr add_expr mul_expr pow_expr unary_expr
 %type <expr_ptr> postfix_expr primary_expr block_expr opt_vector_filter comp_expr
 %type <macro_ptr> macro_definition
@@ -301,6 +301,20 @@ assign_expr:
     | TOK_FUNCTION '(' params_list ')' opt_return_type TOK_TYPE_ARROW assign_expr
     { $$ = new LambdaExpr(*$3, $5 ? $5 : "", std::unique_ptr<Expr>($7), line_number, column_number); delete $3; }
     | let_expr { $$ = $1; }
+    | flow_expr { $$ = $1; }
+    | or_expr { $$ = $1; }
+    ;
+
+/* if/while/for/match: construcciones de control. NO son primary_expr (para que no
+   puedan ser el operando IZQUIERDO de un binario, lo que volveria ambiguo
+   `if (c) x else a + b`). Su cuerpo final es greedy y se extienden a la derecha.
+   Para usarlas como operando DERECHO (`a + if (c) x else y`) se anaden
+   explicitamente como operando derecho de cada operador binario mas abajo. */
+flow_expr:
+    if_expr { $$ = $1; }
+    | while_expr { $$ = $1; }
+    | for_expr { $$ = $1; }
+    | match_expr { $$ = $1; }
     ;
 
 let_expr:
@@ -309,7 +323,6 @@ let_expr:
         $$ = new LetExpr(std::move(*$2), std::unique_ptr<Expr>($4), line_number, column_number);
         delete $2;
     }
-    | if_expr { $$ = $1; }
     ;
 
 if_expr:
@@ -323,7 +336,6 @@ if_expr:
         $$ = new IfExpr(std::move(branches), std::unique_ptr<Expr>($8), line_number, column_number);
         delete $6;
     }
-    | while_expr { $$ = $1; }
     ;
 
 if_branches:
@@ -337,13 +349,11 @@ if_branches:
 
 while_expr:
     TOK_WHILE '(' expression ')' expression { $$ = new WhileExpr(std::unique_ptr<Expr>($3), std::unique_ptr<Expr>($5), line_number, column_number); }
-    | for_expr { $$ = $1; }
     ;
 
 for_expr:
     TOK_FOR '(' IDENTIFIER TOK_IN expression ')' expression
     { $$ = new ForExpr($3, std::unique_ptr<Expr>($5), std::unique_ptr<Expr>($7), line_number, column_number); }
-    | match_expr { $$ = $1; }
     ;
 
 match_expr:
@@ -352,7 +362,6 @@ match_expr:
         $$ = new MatchExpr(std::unique_ptr<Expr>($3), std::move(*$6), std::unique_ptr<Expr>($9), line_number);
         delete $6;
     }
-    | or_expr { $$ = $1; }
     ;
 
 match_arms:
@@ -366,11 +375,13 @@ match_arms:
 
 or_expr:
     or_expr '|' and_expr { $$ = new BinaryExpr("|", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | or_expr '|' flow_expr { $$ = new BinaryExpr("|", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | and_expr { $$ = $1; }
     ;
 
 and_expr:
     and_expr '&' not_expr { $$ = new BinaryExpr("&", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | and_expr '&' flow_expr { $$ = new BinaryExpr("&", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | not_expr { $$ = $1; }
     ;
 
@@ -387,6 +398,12 @@ comparison_expr:
     | concat_expr '>' concat_expr { $$ = new BinaryExpr(">", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | concat_expr TOK_LEQ concat_expr { $$ = new BinaryExpr("<=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | concat_expr TOK_GEQ concat_expr { $$ = new BinaryExpr(">=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_EQ flow_expr { $$ = new BinaryExpr("==", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_NEQ flow_expr { $$ = new BinaryExpr("!=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr '<' flow_expr { $$ = new BinaryExpr("<", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr '>' flow_expr { $$ = new BinaryExpr(">", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_LEQ flow_expr { $$ = new BinaryExpr("<=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_GEQ flow_expr { $$ = new BinaryExpr(">=", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | concat_expr TOK_IS IDENTIFIER { $$ = new IsExpr(std::unique_ptr<Expr>($1), $3, line_number, column_number); }
     | concat_expr TOK_AS IDENTIFIER { $$ = new AsExpr(std::unique_ptr<Expr>($1), $3, line_number, column_number); }
     ;
@@ -394,12 +411,16 @@ comparison_expr:
 concat_expr:
     concat_expr TOK_CONCAT add_expr { $$ = new BinaryExpr("@", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | concat_expr TOK_DCONCAT add_expr { $$ = new BinaryExpr("@@", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_CONCAT flow_expr { $$ = new BinaryExpr("@", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | concat_expr TOK_DCONCAT flow_expr { $$ = new BinaryExpr("@@", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | add_expr { $$ = $1; }
     ;
 
 add_expr:
     add_expr '+' mul_expr { $$ = new BinaryExpr("+", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | add_expr '-' mul_expr { $$ = new BinaryExpr("-", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | add_expr '+' flow_expr { $$ = new BinaryExpr("+", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | add_expr '-' flow_expr { $$ = new BinaryExpr("-", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | mul_expr { $$ = $1; }
     ;
 
@@ -407,11 +428,15 @@ mul_expr:
     mul_expr '*' pow_expr { $$ = new BinaryExpr("*", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | mul_expr '/' pow_expr { $$ = new BinaryExpr("/", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | mul_expr '%' pow_expr { $$ = new BinaryExpr("%", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | mul_expr '*' flow_expr { $$ = new BinaryExpr("*", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | mul_expr '/' flow_expr { $$ = new BinaryExpr("/", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | mul_expr '%' flow_expr { $$ = new BinaryExpr("%", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | pow_expr { $$ = $1; }
     ;
 
 pow_expr:
     unary_expr '^' pow_expr { $$ = new BinaryExpr("^", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
+    | unary_expr '^' flow_expr { $$ = new BinaryExpr("^", std::unique_ptr<Expr>($1), std::unique_ptr<Expr>($3), line_number, column_number); }
     | unary_expr { $$ = $1; }
     ;
 
